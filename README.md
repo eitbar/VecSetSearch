@@ -8,8 +8,8 @@ Vector Set Search Algorithm
 **Marco_embedding**: 
 
 Download datasets from [here](https://hkustconnect-my.sharepoint.com/:f:/g/personal/ytianbc_connect_ust_hk/EuaO6KmFlR5JpeWUUKLH6ccBEpFudB8yEJYBGnPRpX-G3g?e=zyZvsf).
-Pls see https://microsoft.github.io/msmarco/Datasets for more details about MS MARCO (MicroSoft MAchine Reading COmprehension).
-We follow https://github.com/ThirdAIResearch/Dessert to generate `doclensxx.npy` and `encodingx_float16.npy` (For end-to-end testing, we can skip these two intermediate files and directly make modifications on [colBERT/PLAID](https://github.com/stanford-futuredata/ColBERT))
+Pls see https://microsoft.github.io/msmarco/Datasets for more details about datasets - MS MARCO (MicroSoft MAchine Reading COmprehension).
+We follow https://github.com/ThirdAIResearch/Dessert to generate `doclensxx.npy` and `encodingx_float16.npy` (For end-to-end testing, we can skip these two intermediate files and directly make modifications on [colBERT/PLAID](https://github.com/stanford-futuredata/ColBERT)).
 BTW, https://github.com/CosimoRulli/emvb is a good optimization based on PLAID.
 
 The dataset contains a total of 8.8 million passages. Their embeddings are stored across 354 separate `.npy` files, with each embedding having a dimension of 128. Since the number of embeddings per passage varies, we use `doclens` files to store the number of embeddings for each passage. This allows us to correctly split the corresponding `encoding` files.
