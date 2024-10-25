@@ -205,76 +205,6 @@ L2SqrSIMD4ExtResiduals(const void *pVect1v, const void *pVect2v, const void *qty
 }
 #endif
 
-#if defined(USE_NEON)
-static float
-L2SqrNeon(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
-    float *pVect1 = (float *) pVect1v;
-    float *pVect2 = (float *) pVect2v;
-    size_t qty = *((size_t *) qty_ptr);
-
-
-    size_t qty4 = qty >> 2;
-
-    const float *pEnd1 = pVect1 + (qty4 << 2);
-
-    float32x4_t sum = vdupq_n_f32(0);
-
-    while (pVect1 < pEnd1) {
-        auto v1 = vld1q_f32(pVect1);
-        pVect1 += 4;
-        auto v2 = vld1q_f32(pVect2);
-        pVect2 += 4;
-        auto diff = vsubq_f32(v1, v2);
-        sum = vmlaq_f32(sum, diff, diff);
-    }
-    return vaddvq_f32(sum);
-}
-
-static float
-L2SqrNeonResiduals(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
-    size_t qty = *((size_t *) qty_ptr);
-    size_t qty4 = qty >> 2 << 2;
-
-    float res = L2SqrNeon(pVect1v, pVect2v, &qty4);
-    size_t qty_left = qty - qty4;
-
-    float *pVect1 = (float *) pVect1v + qty4;
-    float *pVect2 = (float *) pVect2v + qty4;
-    float res_tail = L2Sqr(pVect1, pVect2, &qty_left);
-
-    return (res + res_tail);
-}
-#endif
-
-static int32_t
-L2SqrSQ8(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
-    uint8_t *x = (uint8_t *)pVect1v;
-    uint8_t *y = (uint8_t *)pVect2v;
-    size_t d = *((size_t *)qty_ptr);
-#if defined(__ARM_NEON)
-    uint32x4_t sum = vdupq_n_u32(0);
-    for (int i = 0; i < d; i += 16) {
-        uint8x16_t xx = vld1q_u8(x + i);
-        uint8x16_t yy = vld1q_u8(y + i);
-        uint8x16_t diff = vabdq_u8(xx, yy);
-        uint8x8_t diff1 = vget_low_u8(diff);
-        uint8x8_t diff2 = vget_high_u8(diff);
-        uint32x4_t diff1_sq_sum = vpaddlq_u16(vmull_u8(diff1, diff1));
-        uint32x4_t diff2_sq_sum = vpaddlq_u16(vmull_u8(diff2, diff2));
-        sum = vaddq_u32(sum, diff1_sq_sum);
-        sum = vaddq_u32(sum, diff2_sq_sum);
-    }
-    return vaddvq_u32(sum);
-#else
-    int32_t sum = 0;
-    for (int i = 0; i < d; ++i) {
-        int32_t diff = x[i] - y[i];
-        sum += diff * diff;
-    }
-    return sum;
-#endif
-}
-
 class L2Space : public SpaceInterface<float> {
     DISTFUNC<float> fstdistfunc_;
     size_t data_size_;
@@ -302,11 +232,6 @@ class L2Space : public SpaceInterface<float> {
             fstdistfunc_ = L2SqrSIMD16ExtResiduals;
         else if (dim > 4)
             fstdistfunc_ = L2SqrSIMD4ExtResiduals;
-#elif defined(USE_NEON)
-    if (dim % 4 == 0)
-        fstdistfunc_ = L2SqrNeon;
-    else if (dim > 4)
-        fstdistfunc_ = L2SqrNeonResiduals;
 #endif
         dim_ = dim;
         data_size_ = dim * sizeof(float);
@@ -325,33 +250,6 @@ class L2Space : public SpaceInterface<float> {
     }
 
     ~L2Space() {}
-};
-
-class L2SpaceSQ8 : public SpaceInterface<int32_t> {
-    DISTFUNC<int32_t> fstdistfunc_;
-    size_t data_size_;
-    size_t dim_;
-
- public:
-    L2SpaceSQ8(size_t dim) {
-        fstdistfunc_ = L2SqrSQ8;
-        dim_ = dim;
-        data_size_ = dim * sizeof(uint8_t);
-    }
-
-    size_t get_data_size() {
-        return data_size_;
-    }
-
-    DISTFUNC<int32_t> get_dist_func() {
-        return fstdistfunc_;
-    }
-
-    void *get_dist_func_param() {
-        return &dim_;
-    }
-
-    ~L2SpaceSQ8() {}
 };
 
 static int

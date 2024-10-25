@@ -1137,7 +1137,7 @@ public:
       }
 
       bool epDeleted = isMarkedDeleted(enterpoint_copy);
-      for (int level = std::min(curlevel, maxlevelcopy); level > 0; level--) {
+      for (int level = std::min(curlevel, maxlevelcopy); level >= 0; level--) {
 
         std::priority_queue<std::pair<dist_t, tableint>,
                             std::vector<std::pair<dist_t, tableint>>,

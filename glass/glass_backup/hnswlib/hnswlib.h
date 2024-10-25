@@ -8,10 +8,6 @@
 #define USE_AVX512
 #endif
 #endif
-#else
-#ifdef __ARM_NEON
-#define USE_NEON
-#endif
 #endif
 #endif
 
@@ -108,10 +104,6 @@ static uint64_t xgetbv(unsigned int index) {
   }
   return HW_AVX512F && avx512Supported;
 }
-#endif
-
-#if defined(USE_NEON)
-#include <arm_neon.h>
 #endif
 
 #include <iostream>
