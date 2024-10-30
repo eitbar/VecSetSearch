@@ -452,6 +452,7 @@ inline int32_t L2SqrSQ4(const uint8_t *x, const uint8_t *y, int d) {
   }
   return sum;
 #endif
+}
 
 inline float L2SqrVC(const float* p, size_t p_size, const float* q, size_t q_size, size_t dim) {
     float sum = 0.0f;
