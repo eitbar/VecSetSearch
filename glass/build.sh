@@ -1,6 +1,2 @@
-cd python
-rm -rf build
-python setup.py bdist_wheel
-pip uninstall glassppy -y
-cd dist
-ls | xargs pip install
+# g++ main.cpp -o main -Ofast -fopenmp -mcmodel=medium -std=c++17 -lfaiss -lopenblas -lgfortran
+g++ main_vs.cpp -o main -Ofast -fopenmp -std=c++17

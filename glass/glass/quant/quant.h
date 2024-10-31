@@ -7,10 +7,11 @@
 #include "sq4_quant.h"
 #include "sq8_quant.h"
 #include "sq8_unified_quant.h"
-#include "random_projector.h"
-#include "sq8_random_projector.h"
-#include "sq4_random_projector.h"
-#include "sq8_random_projector_with_fp16.h"
+#include "fp32_vc_quant.h"
+// #include "random_projector.h"
+// #include "sq8_random_projector.h"
+// #include "sq4_random_projector.h"
+// #include "sq8_random_projector_with_fp16.h"
 
 namespace glass {
 

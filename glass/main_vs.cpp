@@ -6,6 +6,7 @@
 #include <limits>
 #include <unordered_set>
 #include "./glass/simd/distance.h" // Adjust path as needed
+#include "./solution2.cpp"
 
 constexpr int VECTOR_DIM = 128;
 constexpr int BASE_VECTOR_SET_MIN = 36;
@@ -49,40 +50,40 @@ private:
     std::vector<int> base_vec_num;
 };
 
-class Solution {
-public:
-    void build(int d, const std::vector<float>& base, const std::vector<int>& vec_num) {
-        dimension = d;
-        base_vectors = base;
-        base_vec_num = vec_num;
-        // Add any necessary pre-computation or indexing for the optimized search
-    }
+// class Solution {
+// public:
+//     void build(int d, const std::vector<float>& base, const std::vector<int>& vec_num) {
+//         dimension = d;
+//         base_vectors = base;
+//         base_vec_num = vec_num;
+//         // Add any necessary pre-computation or indexing for the optimized search
+//     }
 
-    void search(const std::vector<float>& query, int num_vec, int k, std::vector<int>& res) const {
-        res.clear();
-        std::vector<std::pair<float, int>> distances;
+//     void search(const std::vector<float>& query, int num_vec, int k, std::vector<int>& res) const {
+//         res.clear();
+//         std::vector<std::pair<float, int>> distances;
 
-        // Calculate Chamfer distance between query set and each base set
-        int base_offset = 0;
-        for (size_t i = 0; i < base_vec_num.size(); ++i) {
-            int base_num_vec = base_vec_num[i];
-            float chamfer_dist = glass::L2SqrVC(query.data(), QUERY_VECTOR_COUNT, base_vectors.data() + base_offset, base_num_vec, dimension);
-            distances.push_back({chamfer_dist, static_cast<int>(i)});
-            base_offset += base_num_vec * dimension;
-        }
+//         // Calculate Chamfer distance between query set and each base set
+//         int base_offset = 0;
+//         for (size_t i = 0; i < base_vec_num.size(); ++i) {
+//             int base_num_vec = base_vec_num[i];
+//             float chamfer_dist = glass::L2SqrVC(query.data(), QUERY_VECTOR_COUNT, base_vectors.data() + base_offset, base_num_vec, dimension);
+//             distances.push_back({chamfer_dist, static_cast<int>(i)});
+//             base_offset += base_num_vec * dimension;
+//         }
 
-        // Sort distances to find top-k nearest neighbors
-        std::partial_sort(distances.begin(), distances.begin() + k, distances.end());
-        for (int i = 0; i < k; ++i) {
-            res.push_back(distances[i].second);
-        }
-    }
+//         // Sort distances to find top-k nearest neighbors
+//         std::partial_sort(distances.begin(), distances.begin() + k, distances.end());
+//         for (int i = 0; i < k; ++i) {
+//             res.push_back(distances[i].second);
+//         }
+//     }
 
-private:
-    int dimension;
-    std::vector<float> base_vectors;
-    std::vector<int> base_vec_num;
-};
+// private:
+//     int dimension;
+//     std::vector<float> base_vectors;
+//     std::vector<int> base_vec_num;
+// };
 
 void generate_vector_sets(std::vector<float>& base, std::vector<int>& base_vec_num,
                           std::vector<float>& query, int num_base_sets, int num_query_sets) {
@@ -133,33 +134,33 @@ int main() {
 
     GroundTruth ground_truth;
     ground_truth.build(VECTOR_DIM, base, base_vec_num);
-
+    std::cout<< "Generate Groundtruth and Dataset" <<std::endl;
     Solution solution;
     solution.build(VECTOR_DIM, base, base_vec_num);
 
     double total_recall = 0.0;
 
-    for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-        std::vector<int> ground_truth_indices, solution_indices;
-        std::vector<float> query_set(query.begin() + i * QUERY_VECTOR_COUNT * VECTOR_DIM,
-                                     query.begin() + (i + 1) * QUERY_VECTOR_COUNT * VECTOR_DIM);
+    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+    //     std::vector<int> ground_truth_indices, solution_indices;
+    //     std::vector<float> query_set(query.begin() + i * QUERY_VECTOR_COUNT * VECTOR_DIM,
+    //                                  query.begin() + (i + 1) * QUERY_VECTOR_COUNT * VECTOR_DIM);
 
-        // Search with GroundTruth
-        ground_truth.search(query_set, QUERY_VECTOR_COUNT, K, ground_truth_indices);
+    //     // Search with GroundTruth
+    //     ground_truth.search(query_set, QUERY_VECTOR_COUNT, K, ground_truth_indices);
 
-        // Search with Solution
-        solution.search(query_set, QUERY_VECTOR_COUNT, K, solution_indices);
+    //     // Search with Solution
+    //     solution.search(query_set, QUERY_VECTOR_COUNT, K, solution_indices);
 
-        // Calculate recall for this query set
-        double recall = calculate_recall(solution_indices, ground_truth_indices);
-        total_recall += recall;
+    //     // Calculate recall for this query set
+    //     double recall = calculate_recall(solution_indices, ground_truth_indices);
+    //     total_recall += recall;
 
-        std::cout << "Recall for query set " << i << ": " << recall << std::endl;
-    }
+    //     std::cout << "Recall for query set " << i << ": " << recall << std::endl;
+    // }
 
     // Calculate average recall
-    double average_recall = total_recall / NUM_QUERY_SETS;
-    std::cout << "Average Recall: " << average_recall << std::endl;
+    // double average_recall = total_recall / NUM_QUERY_SETS;
+    // std::cout << "Average Recall: " << average_recall << std::endl;
 
     return 0;
 }
