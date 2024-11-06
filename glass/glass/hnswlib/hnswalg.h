@@ -73,6 +73,11 @@ public:
   std::unordered_set<tableint>
       deleted_elements; // contains internal ids of deleted elements
 
+  std::vector<char*> data_per_element_;          // Stores data pointers per element
+  std::vector<size_t> data_size_per_element_;    // Stores data sizes per element
+  std::vector<labeltype> labels_;                // Stores labels per element
+
+
   HierarchicalNSW(SpaceInterface<dist_t> *s, const std::string &location,
                   bool /**nmslib*/ = false, size_t max_elements = 0,
                   bool allow_replace_deleted = false)
@@ -102,8 +107,8 @@ public:
     update_probability_generator_.seed(random_seed + 1);
 
     size_links_level0_ = maxM0_ * sizeof(tableint) + sizeof(linklistsizeint);
-    size_data_per_element_ =
-        size_links_level0_ + data_size_ + sizeof(labeltype);
+    size_data_per_element_ = size_links_level0_; // Only links are stored here
+
     offsetData_ = size_links_level0_;
     label_offset_ = size_links_level0_ + data_size_;
     offsetLevel0_ = 0;
@@ -124,6 +129,10 @@ public:
         maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
     mult_ = 1 / log(1.0 * M_);
     revSize_ = 1.0 / mult_;
+
+    data_per_element_.resize(max_elements_, nullptr);
+    data_size_per_element_.resize(max_elements_, 0);
+    labels_.resize(max_elements_);
   }
 
   ~HierarchicalNSW() {
@@ -842,13 +851,13 @@ public:
    * If replacement of deleted elements is enabled: replaces previously deleted
    * point if any, updating it with new point
    */
-  void addPoint(const void *data_point, labeltype label,
+  void addPoint(const void *data_point, const int vec_num, labeltype label,
                 bool replace_deleted = false) {
 
     // lock all operations with element by label
     std::unique_lock<std::mutex> lock_label(getLabelOpMutex(label));
     if (!replace_deleted) {
-      addPoint(data_point, label, -1);
+      addPoint(data_point, vec_num, label, -1);
       return;
     }
     // check if there is vacant place
@@ -864,7 +873,7 @@ public:
     // if there is no vacant place then add or update point
     // else add point to vacant place
     if (!is_vacant_place) {
-      addPoint(data_point, label, -1);
+      addPoint(data_point, vec_num, label, -1);
     } else {
       // we assume that there are no concurrent operations on deleted element
       labeltype label_replaced = getExternalLabel(internal_id_replaced);
@@ -876,7 +885,7 @@ public:
       lock_table.unlock();
 
       unmarkDeletedInternal(internal_id_replaced);
-      updatePoint(data_point, internal_id_replaced, 1.0);
+      updatePoint(data_point, vec_num, internal_id_replaced, 1.0);
     }
   }
 
@@ -1057,7 +1066,7 @@ public:
     return result;
   }
 
-  tableint addPoint(const void *data_point, labeltype label, int level) {
+  tableint addPoint(const void *data_point, const int vec_num, labeltype label, int level) {
     tableint cur_c = 0;
     {
       // Checking if the element with the same label already exists
@@ -1071,7 +1080,7 @@ public:
         if (isMarkedDeleted(existingInternalId)) {
           unmarkDeletedInternal(existingInternalId);
         }
-        updatePoint(data_point, existingInternalId, 1.0);
+        updatePoint(data_point, vec_num, existingInternalId, 1.0);
 
         return existingInternalId;
       }
@@ -1080,6 +1089,25 @@ public:
       cur_element_count++;
       label_lookup_[label] = cur_c;
     }
+    // Store the label
+    labels_[cur_c] = label;
+
+    // Calculate data size per element
+    size_t data_size = sizeof(int) + vec_num * dim_ * sizeof(float);
+
+    // Allocate memory for data
+    char* data_ptr = (char*)malloc(data_size);
+
+    // Store vec_num
+    int* vec_num_ptr = (int*)data_ptr;
+    *vec_num_ptr = vec_num;
+
+    // Store the concatenated vectors
+    memcpy(vec_num_ptr + 1, data_point, vec_num * dim_ * sizeof(float));
+
+    // Store data pointer and size
+    data_per_element_[cur_c] = data_ptr;
+    data_size_per_element_[cur_c] = data_size;
 
     std::unique_lock<std::mutex> lock_el(link_list_locks_[cur_c]);
     int curlevel = getRandomLevel(mult_);
@@ -1095,9 +1123,9 @@ public:
     tableint currObj = enterpoint_node_;
     tableint enterpoint_copy = enterpoint_node_;
 
-    memset(data_level0_memory_ + cur_c * size_data_per_element_ + offsetLevel0_,
-           0, size_data_per_element_);
-
+    //memset(data_level0_memory_ + cur_c * size_data_per_element_ + offsetLevel0_,
+    //       0, size_data_per_element_);
+    memset(data_level0_memory_ + cur_c * size_data_per_element_, 0, size_data_per_element_);
     // Initialisation of the data and label
     memcpy(getExternalLabeLp(cur_c), &label, sizeof(labeltype));
     memcpy(getDataByInternalId(cur_c), data_point, data_size_);
