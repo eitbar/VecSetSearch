@@ -25,11 +25,12 @@ The traing query dataset `queries_embeddings.npy`'s format is 101093 * 32 * 128,
 
 ## Experiments
 ### HNSW Demo
-'''
+
+```
 cd hnswlib/
 mkdir build
 cd build
 cmake ..
 make
 ./example_vecset_search
-'''
+```
