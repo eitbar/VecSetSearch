@@ -1,5 +1,7 @@
 #pragma once
 #include "hnswlib.h"
+#include "vectorset.h"
+#include<algorithm>
 
 namespace hnswlib {
 
@@ -8,7 +10,6 @@ L2Sqr(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
     float *pVect1 = (float *) pVect1v;
     float *pVect2 = (float *) pVect2v;
     size_t qty = *((size_t *) qty_ptr);
-
     float res = 0;
     for (size_t i = 0; i < qty; i++) {
         float t = *pVect1 - *pVect2;
@@ -17,6 +18,33 @@ L2Sqr(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
         res += t * t;
     }
     return (res);
+}
+
+static float
+L2SqrVecSet(const vectorset* q, const vectorset* p){
+    float sum = 0.0f;
+    // Iterate over each vector in q
+    for (size_t i = 0; i < q->vecnum; ++i) {
+        const float* vec_q = (q->data) + i * (q->dim); // Pointer to the i-th vector in q
+        float maxDist = 0.0f; // Start with 0 to find maximum distance
+        
+        // Find the maximum L2 distance to any vector in p
+        for (size_t j = 0; j < p->vecnum; ++j) {
+            const float* vec_p = p->data + j * (p->dim); // Pointer to the j-th vector in p
+            // for(int t = 0; t < p->dim; ++t){
+            //     if (vec_p[t] > 1 || vec_p[t] < -1)
+            //         std::cout << vec_p[t] <<std::endl;
+            // }
+            maxDist = std::max(maxDist, L2Sqr(vec_q, vec_p, &((p->dim))));
+           
+        }
+
+        sum += maxDist;
+    }
+
+    // Return the average maximum distance from each vector in q to any vector in p
+    // std::cout<< "sum"<< sum / (q->vecnum)<<std::endl;
+    return sum / (q->vecnum);
 }
 
 #if defined(USE_AVX512)
@@ -204,6 +232,32 @@ L2SqrSIMD4ExtResiduals(const void *pVect1v, const void *pVect2v, const void *qty
     return (res + res_tail);
 }
 #endif
+
+class L2VSSpace : public SpaceInterface<float>{
+    DISTFUNC<float> fstdistfunc_;
+    size_t data_size_;
+    size_t dim_;
+public:
+    L2VSSpace(size_t dim){
+        fstdistfunc_ = L2Sqr;
+        dim_ = dim;
+        data_size_ = sizeof(float*) + sizeof(int) * 2;
+    }
+
+    size_t get_data_size(){
+        return data_size_;
+    }
+
+    DISTFUNC<float> get_dist_func() {
+        return fstdistfunc_;
+    }
+
+    void *get_dist_func_param() {
+        return &dim_;
+    }
+
+    ~L2VSSpace(){}
+};
 
 class L2Space : public SpaceInterface<float> {
     DISTFUNC<float> fstdistfunc_;

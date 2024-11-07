@@ -21,3 +21,15 @@ The traing query dataset `queries_embeddings.npy`'s format is 101093 * 32 * 128,
 
 
 `similarities_labels_xxx.npy` files are ground truth for our method. We compute the distance (sum of MaxSim) between each query and passage pair. For example, `similarities_labels_10000.npy` stores the similaries beween all queries and first 10000 passages. Here we provide the results for the first 1M passages for testing.
+
+
+## Experiments
+### HNSW Demo
+'''
+cd hnswlib/
+mkdir build
+cd build
+cmake ..
+make
+./example_vecset_search
+'''
