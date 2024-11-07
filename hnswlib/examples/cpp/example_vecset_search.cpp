@@ -16,7 +16,7 @@ constexpr int BASE_VECTOR_SET_MAX = 48;
 constexpr int NUM_BASE_SETS = 500;
 constexpr int NUM_QUERY_SETS = 10;
 constexpr int QUERY_VECTOR_COUNT = 32;
-constexpr int K = 5;
+constexpr int K = 10;
 
 class GroundTruth {
 public:
@@ -25,7 +25,7 @@ public:
         base_vectors = base;
     }
 
-    void search(const vectorset query, int k, std::vector<int>& res) const {
+    void search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
         res.clear();
         std::vector<std::pair<float, int>> distances;
 
@@ -40,7 +40,7 @@ public:
         // Sort distances to find top-k nearest neighbors
         std::partial_sort(distances.begin(), distances.begin() + k, distances.end());
         for (int i = 0; i < k; ++i) {
-            res.push_back(distances[i].second);
+            res.push_back(std::make_pair(distances[i].second, distances[i].first));
         }
         
     }
@@ -65,11 +65,11 @@ public:
         // Add any necessary pre-computation or indexing for the optimized search
     }
 
-    void search(const vectorset query, int k, std::vector<int>& res) const {
+    void search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
         res.clear();
         std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnn(&query, k);
         for(int i = 0; i < k; i++){
-            res.push_back(result.top().second);
+            res.push_back(std::make_pair(result.top().second, result.top().first));
             result.pop();
         }
     }
@@ -154,18 +154,18 @@ int main() {
 
     std::cout<<"Processing Queries"<<std::endl;
     for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-        std::vector<int> ground_truth_indices, solution_indices;
+        std::vector<std::pair<int, float>> ground_truth_indices, solution_indices;
         // Search with GroundTruth
         ground_truth.search(query[i], K, ground_truth_indices);
         std::cout<<"BruteForce Result: ";
         for(int j = 0 ; j < ground_truth_indices.size(); j++)
-            std::cout<<ground_truth_indices[j]<<",       ";
+            std::cout<<ground_truth_indices[j].first<<":"<<ground_truth_indices[j].second<<",       ";
         std::cout<<std::endl;
         // Search with Solution
         solution.search(query[i], K, solution_indices);
         std::cout<<"HNSW Result: ";
         for(int j = 0 ; j < solution_indices.size(); j++)
-            std::cout<<solution_indices[j]<<",       ";
+            std::cout<<solution_indices[j].first<<":"<<solution_indices[j].second<<",       ";
         std::cout<<std::endl<<std::endl;
         // Calculate recall for this query set
         //double recall = calculate_recall(solution_indices, ground_truth_indices);
