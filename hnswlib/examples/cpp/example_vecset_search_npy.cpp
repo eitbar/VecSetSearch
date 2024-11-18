@@ -3,7 +3,7 @@
 #include <random>
 #include <string>
 #include <filesystem>
-#include "npy.hpp"
+#include "../../hnswlib/npy.hpp"
 
 int main() {
     // 参数设置
