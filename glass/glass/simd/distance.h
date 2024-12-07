@@ -460,12 +460,12 @@ inline float L2SqrVC(const float* p, size_t p_size, const float* q, size_t q_siz
     // Iterate over each vector in q
     for (size_t i = 0; i < q_size; ++i) {
         const float* vec_q = q + i * dim; // Pointer to the i-th vector in q
-        float maxDist = 0.0f; // Start with 0 to find maximum distance
+        float maxDist = 999999.9f; // Start with 0 to find maximum distance
 
         // Find the maximum L2 distance to any vector in p
         for (size_t j = 0; j < p_size; ++j) {
             const float* vec_p = p + j * dim; // Pointer to the j-th vector in p
-            maxDist = std::max(maxDist, L2Sqr(vec_q, vec_p, dim));
+            maxDist = std::min(maxDist, L2Sqr(vec_q, vec_p, dim));
         }
 
         sum += maxDist;

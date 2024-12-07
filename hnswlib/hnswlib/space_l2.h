@@ -20,30 +20,35 @@ L2Sqr(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
     return (res);
 }
 
+// static float
+// L2SqrVecSet(const vectorset* q, const vectorset* p){
+//     float sum = 0.0f;
+//     // Iterate over each vector in q
+//     //float maxDist = 99999.9f; // Start with 0 to find maximum distance
+
+//     for (size_t i = 0; i < 1; ++i) {
+//         const float* vec_q = (q->data) + i * (q->dim); // Pointer to the i-th vector in q
+//         const float* vec_p = p->data + i * (p->dim); // Pointer to the j-th vector in p
+//         sum += L2Sqr(vec_q, vec_p, &((q->dim)));
+//     }
+//     return sum;
+// }
+
 static float
 L2SqrVecSet(const vectorset* q, const vectorset* p){
     float sum = 0.0f;
     // Iterate over each vector in q
     for (size_t i = 0; i < q->vecnum; ++i) {
         const float* vec_q = (q->data) + i * (q->dim); // Pointer to the i-th vector in q
-        float maxDist = 0.0f; // Start with 0 to find maximum distance
-        
+        float maxDist = 99999.9f; // Start with 0 to find maximum distance
         // Find the maximum L2 distance to any vector in p
         for (size_t j = 0; j < p->vecnum; ++j) {
             const float* vec_p = p->data + j * (p->dim); // Pointer to the j-th vector in p
-            // for(int t = 0; t < p->dim; ++t){
-            //     if (vec_p[t] > 1 || vec_p[t] < -1)
-            //         std::cout << vec_p[t] <<std::endl;
-            // }
-            maxDist = std::max(maxDist, L2Sqr(vec_q, vec_p, &((p->dim))));
-           
+            maxDist = std::min(maxDist, L2Sqr(vec_q, vec_p, &((p->dim))));
         }
-
+        // std::cout << i << " " << maxDist << std::endl;
         sum += maxDist;
     }
-
-    // Return the average maximum distance from each vector in q to any vector in p
-    // std::cout<< "sum"<< sum / (q->vecnum)<<std::endl;
     return sum / (q->vecnum);
 }
 

@@ -5,9 +5,14 @@ project(hnswlib
 
 include(GNUInstallDirs)
 include(CheckCXXCompilerFlag)
+include_directories(${CMAKE_SOURCE_DIR}/cnpy)
 
+add_library(cnpy STATIC ${CMAKE_SOURCE_DIR}/cnpy/cnpy.cpp)
 add_library(hnswlib INTERFACE)
 add_library(hnswlib::hnswlib ALIAS hnswlib)
+
+find_package(ZLIB REQUIRED)
+include_directories(${ZLIB_INCLUDE_DIRS})
 
 target_include_directories(hnswlib INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
@@ -55,6 +60,8 @@ if(HNSWLIB_EXAMPLES)
 
     # examples
     add_executable(example_vecset_search examples examples/cpp/example_vecset_search.cpp)
+    target_link_libraries(example_vecset_search PRIVATE cnpy ${ZLIB_LIBRARIES})
+
     # add_executable(example_search examples/cpp/example_search.cpp)
     # target_link_libraries(example_search hnswlib)
 
