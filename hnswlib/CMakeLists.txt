@@ -65,11 +65,13 @@ if(HNSWLIB_EXAMPLES)
 
     # examples
     add_executable(example_vecset_search examples examples/cpp/example_vecset_search.cpp)
+    add_executable(example_vecset_search_npy examples examples/cpp/example_vecset_search_npy.cpp)
     target_link_libraries(example_vecset_search PRIVATE cnpy ${ZLIB_LIBRARIES})
+    target_link_libraries(example_vecset_search_npy PRIVATE cnpy ${ZLIB_LIBRARIES})
 
     # Link Eigen3
     target_link_libraries(example_vecset_search PRIVATE Eigen3::Eigen)
-
+    target_link_libraries(example_vecset_search_npy PRIVATE Eigen3::Eigen)
     # add_executable(example_search examples/cpp/example_search.cpp)
     # target_link_libraries(example_search hnswlib)
 

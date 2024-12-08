@@ -1,85 +1,422 @@
 #include <iostream>
 #include <vector>
 #include <random>
-#include <string>
-#include <filesystem>
-#include "../../hnswlib/npy.hpp"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <unordered_set>
+#include <omp.h>
+#include<complex>
+#include "../../hnswlib/hnswlib.h"
+#include "../../hnswlib/space_l2.h"
+#include "../../hnswlib/vectorset.h"
+#include "../../cnpy/cnpy.h"
 
-int main() {
-    // 参数设置
-    size_t start = 10000;
-    size_t end = 100000;
-    size_t step = 10000;
-    size_t num_rows = 10000;
-    std::string base_path = "/ssddata/ytianbc/test/marco_embeddings/";
+constexpr int VECTOR_DIM = 128;
+constexpr int BASE_VECTOR_SET_MIN = 36;
+constexpr int BASE_VECTOR_SET_MAX = 48;
+constexpr int MSMACRO_TEST_NUMBER = 1;
+constexpr int NUM_BASE_SETS = 25000 * MSMACRO_TEST_NUMBER;
+constexpr int NUM_QUERY_SETS = 100;
+constexpr int QUERY_VECTOR_COUNT = 32;
+constexpr int K = 100;
 
-    // 加载第一个文件以获取数据维度
-    std::string first_file = base_path + "similarities_labels_" + std::to_string(start) + ".npy";
-    std::vector<std::vector<float>> first_data;
-    std::vector<unsigned long> shape_first;
-    bool fortran_order_first;
-    npy::LoadArrayFromNumpy(first_file, shape_first, fortran_order_first, first_data);
+class GroundTruth {
+public:
+    void build(int d, const std::vector<vectorset>& base) {
+        dimension = d;
+        base_vectors = base;
+    }
 
-    // 生成随机行索引
-    std::vector<size_t> indices(num_rows);
-    std::iota(indices.begin(), indices.end(), 0);
-    std::shuffle(indices.begin(), indices.end(), std::mt19937{std::random_device{}()});
-    indices.resize(num_rows);
+    void search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
+        res.clear();
+        std::vector<std::pair<float, int>> distances;
 
-    // 读取并拼接所有的 .npy 文件
-    std::vector<std::vector<float>> data;
-    for (size_t i = start; i <= end; i += step) {
-        std::string file = base_path + "similarities_labels_" + std::to_string(i) + ".npy";
-        std::vector<std::vector<float>> arr;
-        std::vector<unsigned long> shape;
-        bool fortran_order;
-        npy::LoadArrayFromNumpy(file, shape, fortran_order, arr);
-
-        // 选择随机的行
-        std::vector<std::vector<float>> selected_rows(num_rows, std::vector<float>(shape[1]));
-        for (size_t j = 0; j < num_rows; ++j) {
-            selected_rows[j] = arr[indices[j]];
+        // Calculate Chamfer distance between query set and each base set
+        //std::cout<<"Calc Dis"<<std::endl;
+        int base_offset = 0;
+        for (size_t i = 0; i < base_vectors.size(); ++i) {
+            float chamfer_dist = hnswlib::L2SqrVecSet(&query, &base_vectors[i]);
+            distances.push_back({chamfer_dist, static_cast<int>(i)});
         }
+        //std::cout<<"return ans"<<std::endl;
+        // Sort distances to find top-k nearest neighbors
+        std::partial_sort(distances.begin(), distances.begin() + k, distances.end());
+        for (int i = 0; i < k; ++i) {
+            res.push_back(std::make_pair(distances[i].second, distances[i].first));
+        }
+        
+    }
 
-        // 拼接数据
-        if (data.empty()) {
-            data = selected_rows;
-        } else {
-            for (size_t j = 0; j < num_rows; ++j) {
-                data[j].insert(data[j].end(), selected_rows[j].begin(), selected_rows[j].end());
+private:
+    int dimension;
+    std::vector<vectorset> base_vectors;
+};
+
+class Solution {
+public:
+    void build(int d, const std::vector<vectorset>& base) {
+        double time = omp_get_wtime();
+        dimension = d;
+        base_vectors = base;
+        space_ptr = new hnswlib::L2VSSpace(dimension);
+        alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, NUM_BASE_SETS, 16, 80);
+        #pragma omp parallel for schedule(dynamic)
+        for(hnswlib::labeltype i = 0; i < base_vectors.size(); i++){
+            if (i % 1000 == 0) {
+                std::cout << i << std::endl;
+            }
+            alg_hnsw->addPoint(&base_vectors[i], i);            
+        }
+        std::cout << "Build time: " << omp_get_wtime() - time << "sec"<<std::endl;
+        // Add any necessary pre-computation or indexing for the optimized search
+    }
+
+    void search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
+        res.clear();
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnn(&query, k);
+        for(int i = 0; i < k; i++){
+            res.push_back(std::make_pair(result.top().second, result.top().first));
+            result.pop();
+        }
+    }
+
+private:
+    int dimension;
+    std::vector<vectorset> base_vectors;
+    hnswlib::L2VSSpace* space_ptr;
+    hnswlib::HierarchicalNSW<float>* alg_hnsw;
+};
+
+
+float half_to_float(uint16_t h) {
+    // 参考 IEEE 754 半精度转换公式
+    int s = (h >> 15) & 0x1;                   // 符号位
+    int e = (h >> 10) & 0x1F;                  // 指数部分
+    int f = h & 0x3FF;                         // 尾数部分
+    if (e == 0) {                              // 次正规数
+        return (s ? -1 : 1) * std::ldexp(f, -24);
+    } else if (e == 31) {                      // 特殊值（NaN 或 Infinity）
+        return (s ? -1 : 1) * (f ? NAN : INFINITY);
+    } else {                                   // 规范化数
+        return (s ? -1 : 1) * std::ldexp(f + 1024, e - 15 - 10);
+    }
+}
+
+
+void demo_test_msmarco(std::vector<float>& base_data, std::vector<vectorset>& base,
+                       std::vector<float>& query_data, std::vector<vectorset>& query, 
+                       int file_numbers, std::vector<std::vector<int>>& qrels) {
+    int offset = 0;   
+    int p_offset = 0;                 
+    for (int i = 0; i < 1; i++) {
+        std::string embfile_name = "/ssddata/0.6b_128d_dataset/encoding" + std::to_string(i) + "_float16.npy";
+        std::string lensfile_name = "/ssddata/0.6b_128d_dataset/doclens" + std::to_string(i) + ".npy";
+        cnpy::NpyArray arr_npy = cnpy::npy_load(embfile_name);
+        cnpy::NpyArray lens_npy = cnpy::npy_load(lensfile_name);
+        uint16_t* raw_vec_data = arr_npy.data<uint16_t>();
+        size_t num_elements = arr_npy.shape[0] * arr_npy.shape[1];
+        // int* lens_data = lens_npy.data<int>();
+        std::complex<int>* lens_data = lens_npy.data<std::complex<int>>();
+        size_t doc_num = 25000;
+        std::cout << "Processing file " << i << std::endl;
+        // assert (doc_num == 25000);
+        
+        for (size_t i = 0; i < num_elements; ++i) {
+            base_data[i] = (static_cast<float>(half_to_float(raw_vec_data[i])));
+        }
+        
+        for (int i = 0; i < doc_num; ++i) {
+            // std::cout << base_data[offset] << " " << lens_data[i].real() << std::endl;
+            base.push_back(vectorset(base_data.data() + offset, VECTOR_DIM, lens_data[i].real()));
+            offset += lens_data[i].real() * VECTOR_DIM;
+        }    
+    }
+
+    std::string qembfile_name = "/ssddata/0.6b_128d_dataset/queries_embeddings.npy";
+    cnpy::NpyArray qembs_npy = cnpy::npy_load(qembfile_name);
+    float* raw_qembs_data = qembs_npy.data<float>();
+    size_t num_qembs_elements = NUM_QUERY_SETS * 32 * 128;
+
+    int q_offset = 0;
+    
+    for (size_t i = 0; i < num_qembs_elements; ++i) {
+        query_data.push_back(static_cast<float>((raw_qembs_data[i])));
+    }
+    
+    for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+        query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, 32));
+        q_offset += 32 * VECTOR_DIM;
+    }
+
+    // std::string qembfile_name = "/ssddata/0.6b_128d_dataset/qembs_6980.npy";
+    // std::string qlensfile_name = "/ssddata/0.6b_128d_dataset/qlens_6980.npy";
+    // cnpy::NpyArray qembs_npy = cnpy::npy_load(qembfile_name);
+    // cnpy::NpyArray qlens_npy = cnpy::npy_load(qlensfile_name);
+
+    // uint16_t* raw_qembs_data = qembs_npy.data<uint16_t>();
+    // size_t num_qembs_elements = qembs_npy.shape[0] * qembs_npy.shape[1];
+
+    // std::complex<int>* qlens_data = qlens_npy.data<std::complex<int>>();
+    // size_t q_num = qlens_npy.shape[0];
+
+    // int q_offset = 0;
+    // assert (q_num == 6980);
+    
+    // for (size_t i = 0; i < num_qembs_elements; ++i) {
+    //     query_data.push_back(static_cast<float>(half_to_float(raw_qembs_data[i])));
+    // }
+    
+    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+    //     query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, qlens_data[i].real()));
+    //     q_offset += qlens_data[i].real() * VECTOR_DIM;
+    // }
+
+    std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << " " << qrels.size() << std::endl;
+}
+
+
+void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& base,
+                       std::vector<float>& query_data, std::vector<vectorset>& query, 
+                       int file_numbers, std::vector<std::vector<int>>& qrels) {
+    int offset = 0;                    
+    for (int i = 0; i < file_numbers; i++) {
+        std::string embfile_name = "/ssddata/0.6b_128d_dataset/encoding" + std::to_string(i) + "_float16.npy";
+        std::string lensfile_name = "/ssddata/0.6b_128d_dataset/doclens" + std::to_string(i) + ".npy";
+        cnpy::NpyArray arr_npy = cnpy::npy_load(embfile_name);
+        cnpy::NpyArray lens_npy = cnpy::npy_load(lensfile_name);
+        uint16_t* raw_vec_data = arr_npy.data<uint16_t>();
+        size_t num_elements = arr_npy.shape[0] * arr_npy.shape[1];
+        // int* lens_data = lens_npy.data<int>();
+        std::complex<int>* lens_data = lens_npy.data<std::complex<int>>();
+        size_t doc_num = lens_npy.shape[0];
+        std::cout << "Processing file " << i << std::endl;
+        // assert (doc_num == 25000);
+        
+        for (size_t i = 0; i < num_elements; ++i) {
+            base_data.push_back(static_cast<float>(half_to_float(raw_vec_data[i])));
+        }
+        
+        for (int i = 0; i < doc_num; ++i) {
+            base.push_back(vectorset(base_data.data() + offset, VECTOR_DIM, lens_data[i].real()));
+            offset += lens_data[i].real() * VECTOR_DIM;
+        }
+    }
+
+    std::string qembfile_name = "/ssddata/0.6b_128d_dataset/qembs_6980.npy";
+    std::string qlensfile_name = "/ssddata/0.6b_128d_dataset/qlens_6980.npy";
+    cnpy::NpyArray qembs_npy = cnpy::npy_load(qembfile_name);
+    cnpy::NpyArray qlens_npy = cnpy::npy_load(qlensfile_name);
+
+    uint16_t* raw_qembs_data = qembs_npy.data<uint16_t>();
+    size_t num_qembs_elements = qembs_npy.shape[0] * qembs_npy.shape[1];
+
+    std::complex<int>* qlens_data = qlens_npy.data<std::complex<int>>();
+    size_t q_num = qlens_npy.shape[0];
+
+    int q_offset = 0;
+    assert (q_num == 6980);
+    
+    for (size_t i = 0; i < num_qembs_elements; ++i) {
+        query_data.push_back(static_cast<float>(half_to_float(raw_qembs_data[i])));
+    }
+    
+    for (int i = 0; i < q_num; ++i) {
+        query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, qlens_data[i].real()));
+        q_offset += qlens_data[i].real() * VECTOR_DIM;
+    }
+    qrels.resize(q_num + 1);
+
+    std::ifstream file("/ssddata/vecDB_publi_data/0.6b_128d_dataset/qrels_6980.tsv");
+    std::string line;
+    while (std::getline(file, line)) { // 逐行读取
+        std::istringstream iss(line);  // 创建字符串流
+        int num1, num2;
+        char delimiter;                // 用于捕获 \t 分隔符
+
+        // 读取两个整数，用 \t 作为分隔符
+        if (iss >> num1 >> delimiter >> num2) {
+            if (num1 < 0 || num1 >= q_num) {
+                std::cerr << "?" << line << std::endl;
+            } else {
+                qrels[num1].push_back(num2);
+            }
+        }
+    }
+    file.close();
+
+    std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << " " << qrels.size() << std::endl;
+}
+
+void generate_vector_sets(std::vector<float>& base_data, std::vector<vectorset>& base,
+                          std::vector<float>& query_data, std::vector<vectorset>& query, 
+                          int num_base_sets, int num_query_sets) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> dis(-1.0, 1.0);
+    std::uniform_int_distribution<int> vec_count_dis(BASE_VECTOR_SET_MIN, BASE_VECTOR_SET_MAX);
+
+    // Step 1: Generate base vector data
+    std::vector<int> base_vec_counts;  // Track the number of vectors for each base set
+    for (int i = 0; i < num_base_sets; ++i) {
+        int num_vectors = vec_count_dis(gen);
+        // int num_vectors = i + 1;
+        base_vec_counts.push_back(num_vectors);
+        
+        // Fill base_data with random values for each vector
+        for (int j = 0; j < num_vectors; ++j) {
+            for (int d = 0; d < VECTOR_DIM; ++d) {
+                base_data.push_back(dis(gen));
             }
         }
     }
 
-    // 获取数据维度
-    size_t n = data.size();
-    size_t m = data[0].size();
+    // Step 2: Create vectorset objects for the base vector sets
+    int offset = 0;
+    for (int i = 0; i < num_base_sets; ++i) {
+        base.push_back(vectorset(base_data.data() + offset, VECTOR_DIM, base_vec_counts[i]));
+        offset += base_vec_counts[i] * VECTOR_DIM;
+    }
 
-    // 生成二进制掩码矩阵
-    std::vector<std::vector<int>> mask(n, std::vector<int>(m, 0));
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::bernoulli_distribution dist(0.2);
-
-    for (size_t i = 0; i < n; ++i) {
-        for (size_t j = 0; j < m; ++j) {
-            mask[i][j] = dist(gen);
+    // Step 3: Generate query vector data
+    for (int i = 0; i < num_query_sets; ++i) {
+        // Fill query_data with random values for each vector
+        for (int j = 0; j < QUERY_VECTOR_COUNT; ++j) {
+            for (int d = 0; d < VECTOR_DIM; ++d) {
+                query_data.push_back(dis(gen));
+            }
         }
     }
 
-    // 设置第一列全为1
-    for (size_t i = 0; i < n; ++i) {
-        mask[i][0] = 1;
+    // Step 4: Create vectorset objects for the query vector sets
+    offset = 0;
+    for (int i = 0; i < num_query_sets; ++i) {
+        query.push_back(vectorset(query_data.data() + offset, VECTOR_DIM, QUERY_VECTOR_COUNT));
+        offset += QUERY_VECTOR_COUNT * VECTOR_DIM;
     }
 
-    // 保存文件
-    npy::SaveArrayAsNumpy("mask_gene.npy", mask, false);
-    npy::SaveArrayAsNumpy("data_gene.npy", data, false);
+    // Debug output to confirm correct data range
+    std::cout << "Sample value from base_data: " << base_data[16] << std::endl;
+}
 
-    std::vector<size_t> indices_as_vector(indices.begin(), indices.end());
-    npy::SaveArrayAsNumpy("indices_gene.npy", indices_as_vector, false);
+double calculate_recall_for_msmacro(const std::vector<std::pair<int, float>>& solution_indices,
+                        const std::vector<int>& ground_truth_indices) {
+    std::unordered_set<int> solution_set;
+    std::unordered_set<int> ground_truth_set;
+    for (const auto& pair : solution_indices) {
+        solution_set.insert(pair.first);
+    }
+    for (const auto& pid : ground_truth_indices) {
+        ground_truth_set.insert(pid);
+    }
+    int intersection_count = 0;
+    for (const int& index : solution_set) {
+        if (ground_truth_set.find(index) != ground_truth_set.end()) {
+            intersection_count++;
+        }
+    }
 
-    std::cout << "Data saved successfully!" << std::endl;
+    double recall = static_cast<double>(intersection_count) / ground_truth_set.size();
+    return recall;
+}
+
+double calculate_recall(const std::vector<std::pair<int, float>>& solution_indices,
+                        const std::vector<std::pair<int, float>>& ground_truth_indices) {
+    std::unordered_set<int> solution_set;
+    std::unordered_set<int> ground_truth_set;
+    for (const auto& pair : solution_indices) {
+        solution_set.insert(pair.first);
+    }
+    for (const auto& pair : ground_truth_indices) {
+        ground_truth_set.insert(pair.first);
+    }
+    int intersection_count = 0;
+    for (const int& index : solution_set) {
+        if (ground_truth_set.find(index) != ground_truth_set.end()) {
+            intersection_count++;
+        }
+    }
+
+    double recall = static_cast<double>(intersection_count) / ground_truth_set.size();
+    return recall;
+}
+
+int main() {
+    std::vector<float> base_data;
+    std::vector<int> base_vec_num;
+    std::vector<float> query_data;
+    std::vector<vectorset> base;
+    std::vector<vectorset> query;
+    std::vector<std::vector<int>> qrels;
+    base_data.resize((long long) 25000 * MSMACRO_TEST_NUMBER * VECTOR_DIM * 80);
+    // Generate dataset
+    // generate_vector_sets(base_data, base, query_data, query, NUM_BASE_SETS, NUM_QUERY_SETS);
+    demo_test_msmarco(base_data, base, query_data, query, MSMACRO_TEST_NUMBER, qrels);
+    // std::cout<<"outliner"<< std::endl;
+    // for (int i = 0; i<base.size(); i++){
+    //     for(int j = 0; j < base[i].dim * base[i].vecnum; j++) {
+    //         if(*(base[i].data + j) > 1 ||  *(base[i].data + j) < -1)
+    //             std::cout << "outliner" << *(base[i].data + j) << std::endl;
+    //     }
+    // }
+
+
+    // msmacro test:
+    // Solution solution;
+    // solution.build(VECTOR_DIM, base);
+    // double total_recall = 0.0;
+    // int topk = 100;
+    // std::cout<<"Processing Queries"<<std::endl;
+    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+    //     std::vector<std::pair<int, float>> ground_truth_indices, solution_indices;
+    //     solution.search(query[i], topk, solution_indices);
+    //     // std::cout<<"HNSW Result: ";
+    //     // for(int j = 0 ; j < solution_indices.size(); j++)
+    //     //     std::cout<<solution_indices[j].first<<":"<<solution_indices[j].second<<std::endl;
+    //     // std::cout<<std::endl<<std::endl;
+    //     // Calculate recall for this query set
+    //     double recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
+    //     total_recall += recall;
+    //     // std::cout << "Recall for query set " << i << ": " << recall << std::endl;
+    // }
+
+    // // Calculate average recall
+    // double average_recall = total_recall / NUM_QUERY_SETS;
+    // std::cout << "Average Recall: " << average_recall << std::endl;
+
+    // random test:
+
+    GroundTruth ground_truth;
+    ground_truth.build(VECTOR_DIM, base);
+    std::cout<< "Generate Groundtruth and Dataset" <<std::endl;
+    Solution solution;
+    solution.build(VECTOR_DIM, base);
+    double total_recall = 0.0;
+
+    std::cout<<"Processing Queries"<<std::endl;
+    for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+        std::vector<std::pair<int, float>> ground_truth_indices, solution_indices;
+        // Search with GroundTruth
+        ground_truth.search(query[i], K, ground_truth_indices);
+        std::cout<<"BruteForce Result: ";
+        for(int j = 0 ; j < ground_truth_indices.size(); j++)
+            std::cout<<ground_truth_indices[j].first<<":"<<ground_truth_indices[j].second<<std::endl;
+        std::cout<<std::endl;
+        // Search with Solution
+        solution.search(query[i], K, solution_indices);
+        // std::cout<<"HNSW Result: ";
+        // for(int j = 0 ; j < solution_indices.size(); j++)
+        //     std::cout<<solution_indices[j].first<<":"<<solution_indices[j].second<<std::endl;
+        // std::cout<<std::endl<<std::endl;
+        // Calculate recall for this query set
+        double recall = calculate_recall(solution_indices, ground_truth_indices);
+        total_recall += recall;
+        std::cout << "Recall for query set " << i << ": " << recall << std::endl;
+    }
+
+    // Calculate average recall
+    double average_recall = total_recall / NUM_QUERY_SETS;
+    std::cout << "Average Recall: " << average_recall << std::endl;
 
     return 0;
 }
