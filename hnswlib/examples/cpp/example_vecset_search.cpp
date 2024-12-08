@@ -15,10 +15,11 @@
 constexpr int VECTOR_DIM = 128;
 constexpr int BASE_VECTOR_SET_MIN = 36;
 constexpr int BASE_VECTOR_SET_MAX = 48;
-constexpr int NUM_BASE_SETS = 10000;
-constexpr int NUM_QUERY_SETS = 10;
+constexpr int MSMACRO_TEST_NUMBER = 1;
+constexpr int NUM_BASE_SETS = 25000 * MSMACRO_TEST_NUMBER;
+constexpr int NUM_QUERY_SETS = 100;
 constexpr int QUERY_VECTOR_COUNT = 32;
-constexpr int K = 10;
+constexpr int K = 100;
 
 class GroundTruth {
 public:
@@ -58,10 +59,10 @@ public:
         dimension = d;
         base_vectors = base;
         space_ptr = new hnswlib::L2VSSpace(dimension);
-        alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, NUM_BASE_SETS, 16, 32);
+        alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, NUM_BASE_SETS, 16, 80);
         #pragma omp parallel for schedule(dynamic)
         for(hnswlib::labeltype i = 0; i < base_vectors.size(); i++){
-            if (i % 100 == 0) {
+            if (i % 1000 == 0) {
                 std::cout << i << std::endl;
             }
             alg_hnsw->addPoint(&base_vectors[i], i);            
@@ -101,12 +102,82 @@ float half_to_float(uint16_t h) {
 }
 
 
+void demo_test_msmarco(std::vector<float>& base_data, std::vector<vectorset>& base,
+                       std::vector<float>& query_data, std::vector<vectorset>& query, 
+                       int file_numbers, std::vector<std::vector<int>>& qrels) {
+    int offset = 0;   
+    int p_offset = 0;                 
+    for (int i = 0; i < 1; i++) {
+        std::string embfile_name = "/ssddata/0.6b_128d_dataset/encoding" + std::to_string(i) + "_float16.npy";
+        std::string lensfile_name = "/ssddata/0.6b_128d_dataset/doclens" + std::to_string(i) + ".npy";
+        cnpy::NpyArray arr_npy = cnpy::npy_load(embfile_name);
+        cnpy::NpyArray lens_npy = cnpy::npy_load(lensfile_name);
+        uint16_t* raw_vec_data = arr_npy.data<uint16_t>();
+        size_t num_elements = arr_npy.shape[0] * arr_npy.shape[1];
+        // int* lens_data = lens_npy.data<int>();
+        std::complex<int>* lens_data = lens_npy.data<std::complex<int>>();
+        size_t doc_num = 25000;
+        std::cout << "Processing file " << i << std::endl;
+        // assert (doc_num == 25000);
+        
+        for (size_t i = 0; i < num_elements; ++i) {
+            base_data[i] = (static_cast<float>(half_to_float(raw_vec_data[i])));
+        }
+        
+        for (int i = 0; i < doc_num; ++i) {
+            // std::cout << base_data[offset] << " " << lens_data[i].real() << std::endl;
+            base.push_back(vectorset(base_data.data() + offset, VECTOR_DIM, lens_data[i].real()));
+            offset += lens_data[i].real() * VECTOR_DIM;
+        }    
+    }
+
+    std::string qembfile_name = "/ssddata/0.6b_128d_dataset/queries_embeddings.npy";
+    cnpy::NpyArray qembs_npy = cnpy::npy_load(qembfile_name);
+    float* raw_qembs_data = qembs_npy.data<float>();
+    size_t num_qembs_elements = NUM_QUERY_SETS * 32 * 128;
+
+    int q_offset = 0;
+    
+    for (size_t i = 0; i < num_qembs_elements; ++i) {
+        query_data.push_back(static_cast<float>((raw_qembs_data[i])));
+    }
+    
+    for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+        query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, 32));
+        q_offset += 32 * VECTOR_DIM;
+    }
+
+    // std::string qembfile_name = "/ssddata/0.6b_128d_dataset/qembs_6980.npy";
+    // std::string qlensfile_name = "/ssddata/0.6b_128d_dataset/qlens_6980.npy";
+    // cnpy::NpyArray qembs_npy = cnpy::npy_load(qembfile_name);
+    // cnpy::NpyArray qlens_npy = cnpy::npy_load(qlensfile_name);
+
+    // uint16_t* raw_qembs_data = qembs_npy.data<uint16_t>();
+    // size_t num_qembs_elements = qembs_npy.shape[0] * qembs_npy.shape[1];
+
+    // std::complex<int>* qlens_data = qlens_npy.data<std::complex<int>>();
+    // size_t q_num = qlens_npy.shape[0];
+
+    // int q_offset = 0;
+    // assert (q_num == 6980);
+    
+    // for (size_t i = 0; i < num_qembs_elements; ++i) {
+    //     query_data.push_back(static_cast<float>(half_to_float(raw_qembs_data[i])));
+    // }
+    
+    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+    //     query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, qlens_data[i].real()));
+    //     q_offset += qlens_data[i].real() * VECTOR_DIM;
+    // }
+
+    std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << " " << qrels.size() << std::endl;
+}
 
 
 void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& base,
                        std::vector<float>& query_data, std::vector<vectorset>& query, 
-                       int file_numbers) {
-
+                       int file_numbers, std::vector<std::vector<int>>& qrels) {
+    int offset = 0;                    
     for (int i = 0; i < file_numbers; i++) {
         std::string embfile_name = "/ssddata/0.6b_128d_dataset/encoding" + std::to_string(i) + "_float16.npy";
         std::string lensfile_name = "/ssddata/0.6b_128d_dataset/doclens" + std::to_string(i) + ".npy";
@@ -117,11 +188,8 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
         // int* lens_data = lens_npy.data<int>();
         std::complex<int>* lens_data = lens_npy.data<std::complex<int>>();
         size_t doc_num = lens_npy.shape[0];
-        int offset = 0;
-        std::cout << arr_npy.shape[0] << " " << arr_npy.shape[1] << " " << num_elements << std::endl;
-        std::cout << doc_num << std::endl;
-        std::cout << lens_npy.word_size << std::endl;
-        assert (doc_num == 25000);
+        std::cout << "Processing file " << i << std::endl;
+        // assert (doc_num == 25000);
         
         for (size_t i = 0; i < num_elements; ++i) {
             base_data.push_back(static_cast<float>(half_to_float(raw_vec_data[i])));
@@ -155,7 +223,27 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
         query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, qlens_data[i].real()));
         q_offset += qlens_data[i].real() * VECTOR_DIM;
     }
-    std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << std::endl;
+    qrels.resize(q_num + 1);
+
+    std::ifstream file("/ssddata/vecDB_publi_data/0.6b_128d_dataset/qrels_6980.tsv");
+    std::string line;
+    while (std::getline(file, line)) { // 逐行读取
+        std::istringstream iss(line);  // 创建字符串流
+        int num1, num2;
+        char delimiter;                // 用于捕获 \t 分隔符
+
+        // 读取两个整数，用 \t 作为分隔符
+        if (iss >> num1 >> delimiter >> num2) {
+            if (num1 < 0 || num1 >= q_num) {
+                std::cerr << "?" << line << std::endl;
+            } else {
+                qrels[num1].push_back(num2);
+            }
+        }
+    }
+    file.close();
+
+    std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << " " << qrels.size() << std::endl;
 }
 
 void generate_vector_sets(std::vector<float>& base_data, std::vector<vectorset>& base,
@@ -209,6 +297,27 @@ void generate_vector_sets(std::vector<float>& base_data, std::vector<vectorset>&
     std::cout << "Sample value from base_data: " << base_data[16] << std::endl;
 }
 
+double calculate_recall_for_msmacro(const std::vector<std::pair<int, float>>& solution_indices,
+                        const std::vector<int>& ground_truth_indices) {
+    std::unordered_set<int> solution_set;
+    std::unordered_set<int> ground_truth_set;
+    for (const auto& pair : solution_indices) {
+        solution_set.insert(pair.first);
+    }
+    for (const auto& pid : ground_truth_indices) {
+        ground_truth_set.insert(pid);
+    }
+    int intersection_count = 0;
+    for (const int& index : solution_set) {
+        if (ground_truth_set.find(index) != ground_truth_set.end()) {
+            intersection_count++;
+        }
+    }
+
+    double recall = static_cast<double>(intersection_count) / ground_truth_set.size();
+    return recall;
+}
+
 double calculate_recall(const std::vector<std::pair<int, float>>& solution_indices,
                         const std::vector<std::pair<int, float>>& ground_truth_indices) {
     std::unordered_set<int> solution_set;
@@ -236,10 +345,11 @@ int main() {
     std::vector<float> query_data;
     std::vector<vectorset> base;
     std::vector<vectorset> query;
+    std::vector<std::vector<int>> qrels;
+    base_data.resize((long long) 25000 * MSMACRO_TEST_NUMBER * VECTOR_DIM * 80);
     // Generate dataset
-    generate_vector_sets(base_data, base, query_data, query, NUM_BASE_SETS, NUM_QUERY_SETS);
-    // load_from_msmarco(base_data, base, query_data, query, 1);
-
+    // generate_vector_sets(base_data, base, query_data, query, NUM_BASE_SETS, NUM_QUERY_SETS);
+    demo_test_msmarco(base_data, base, query_data, query, MSMACRO_TEST_NUMBER, qrels);
     // std::cout<<"outliner"<< std::endl;
     // for (int i = 0; i<base.size(); i++){
     //     for(int j = 0; j < base[i].dim * base[i].vecnum; j++) {
@@ -247,6 +357,33 @@ int main() {
     //             std::cout << "outliner" << *(base[i].data + j) << std::endl;
     //     }
     // }
+
+
+    // msmacro test:
+    // Solution solution;
+    // solution.build(VECTOR_DIM, base);
+    // double total_recall = 0.0;
+    // int topk = 100;
+    // std::cout<<"Processing Queries"<<std::endl;
+    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+    //     std::vector<std::pair<int, float>> ground_truth_indices, solution_indices;
+    //     solution.search(query[i], topk, solution_indices);
+    //     // std::cout<<"HNSW Result: ";
+    //     // for(int j = 0 ; j < solution_indices.size(); j++)
+    //     //     std::cout<<solution_indices[j].first<<":"<<solution_indices[j].second<<std::endl;
+    //     // std::cout<<std::endl<<std::endl;
+    //     // Calculate recall for this query set
+    //     double recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
+    //     total_recall += recall;
+    //     // std::cout << "Recall for query set " << i << ": " << recall << std::endl;
+    // }
+
+    // // Calculate average recall
+    // double average_recall = total_recall / NUM_QUERY_SETS;
+    // std::cout << "Average Recall: " << average_recall << std::endl;
+
+    // random test:
+
     GroundTruth ground_truth;
     ground_truth.build(VECTOR_DIM, base);
     std::cout<< "Generate Groundtruth and Dataset" <<std::endl;
@@ -265,10 +402,10 @@ int main() {
         std::cout<<std::endl;
         // Search with Solution
         solution.search(query[i], K, solution_indices);
-        std::cout<<"HNSW Result: ";
-        for(int j = 0 ; j < solution_indices.size(); j++)
-            std::cout<<solution_indices[j].first<<":"<<solution_indices[j].second<<std::endl;
-        std::cout<<std::endl<<std::endl;
+        // std::cout<<"HNSW Result: ";
+        // for(int j = 0 ; j < solution_indices.size(); j++)
+        //     std::cout<<solution_indices[j].first<<":"<<solution_indices[j].second<<std::endl;
+        // std::cout<<std::endl<<std::endl;
         // Calculate recall for this query set
         double recall = calculate_recall(solution_indices, ground_truth_indices);
         total_recall += recall;

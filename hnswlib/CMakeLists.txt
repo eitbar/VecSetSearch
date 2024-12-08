@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.0...3.26)
 
+
+# Find and include Eigen3
+find_package(Eigen3 REQUIRED)
+include_directories(${EIGEN3_INCLUDE_DIR})
+
 project(hnswlib
     LANGUAGES CXX)
 
@@ -61,6 +66,9 @@ if(HNSWLIB_EXAMPLES)
     # examples
     add_executable(example_vecset_search examples examples/cpp/example_vecset_search.cpp)
     target_link_libraries(example_vecset_search PRIVATE cnpy ${ZLIB_LIBRARIES})
+
+    # Link Eigen3
+    target_link_libraries(example_vecset_search PRIVATE Eigen3::Eigen)
 
     # add_executable(example_search examples/cpp/example_search.cpp)
     # target_link_libraries(example_search hnswlib)
