@@ -446,8 +446,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return top_candidates;
     }
 
-    const int thread_num = 16;
-    const int local_rounds = 5;
+    const int thread_num = 4;
+    const int local_rounds = 30;
 
     inline void update_top_candidate_para(std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_cand, std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> &top_local){
         std::set<int> seen;
@@ -513,7 +513,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         size_t ef,
         BaseFilterFunctor* isIdAllowed = nullptr,
         BaseSearchStopCondition<dist_t>* stop_condition = nullptr) {
-        std::cout<< "Parallel Search Knn" <<std::endl;
+        std::cout<< "Parallel Search Knn" << "bare bone search" << bare_bone_search <<std::endl;
         VisitedList *vl = visited_list_pool_->getFreeVisitedList();
         vl_type *visited_array = vl->mass;
         vl_type visited_array_tag = vl->curV;
@@ -564,7 +564,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             candidate_local[0].emplace(-candidate_dist, current_node_pair.second);
 
             while(!candidate_set.empty()){
-                for(int i = 1; i < thread_num; i++){
+                for(int i = 0; i < thread_num; i++){
                     if(candidate_set.empty()) break;
                     candidate_local[i].emplace(candidate_set.top().first, candidate_set.top().second);
                     candidate_set.pop();

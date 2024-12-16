@@ -18,7 +18,7 @@ constexpr int BASE_VECTOR_SET_MAX = 48;
 constexpr int NUM_BASE_SETS = 10000;
 constexpr int NUM_QUERY_SETS = 10;
 constexpr int QUERY_VECTOR_COUNT = 32;
-constexpr int K = 10;
+constexpr int K = 20;
 
 class GroundTruth {
 public:
