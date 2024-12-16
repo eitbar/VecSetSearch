@@ -9,7 +9,7 @@
 #include <unordered_set>
 #include <list>
 #include <memory>
-
+#include <set>
 namespace hnswlib {
 typedef unsigned int tableint;
 typedef unsigned int linklistsizeint;
@@ -446,6 +446,183 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return top_candidates;
     }
 
+    const int thread_num = 16;
+    const int local_rounds = 5;
+
+    inline void update_top_candidate_para(std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_cand, std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> &top_local){
+        std::set<int> seen;
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> min_heap;
+        while(!top_cand.empty()){
+            if(seen.find(top_cand.top().second) == seen.end()){
+                min_heap.emplace(-top_cand.top().first, top_cand.top().second);
+                seen.insert(top_cand.top().second);
+            }
+            top_cand.pop();
+        }
+
+        for(int i=0 ;i<top_local.size(); i++){
+            while(!top_local[i].empty()){
+                if(seen.find(top_local[i].top().second) == seen.end()){
+                    min_heap.emplace(-top_local[i].top().first, top_local[i].top().second);
+                    seen.insert(top_local[i].top().second);
+                }
+                top_local[i].pop();
+            }
+        }
+
+        while(!min_heap.empty() && top_cand.size() < ef_){
+            top_cand.emplace(-min_heap.top().first, min_heap.top().second);
+            min_heap.pop();
+        }
+    }
+
+    inline void update_candidate_set_para(std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &cand_total, std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> &cand_local, bool delete_tail, dist_t lowerbound){
+        std::set<int> seen;
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> max_heap;
+        while(!cand_total.empty()){
+            if(seen.find(cand_total.top().second) == seen.end()){
+                max_heap.emplace(cand_total.top().first, cand_total.top().second);
+                seen.insert(cand_total.top().second);
+            }
+            cand_total.pop();
+        }
+
+        for(int i=0 ;i<cand_local.size(); i++){
+            while(!cand_local[i].empty()){
+                if(seen.find(cand_local[i].top().second) == seen.end()){
+                    max_heap.emplace(cand_local[i].top().first, cand_local[i].top().second);
+                    seen.insert(cand_local[i].top().second);
+                }
+                cand_local[i].pop();
+            }
+        }
+
+        while(!max_heap.empty() && max_heap.size() < ef_){
+            if(delete_tail && max_heap.top().first < -lowerbound) break;
+            cand_total.emplace(max_heap.top().first, max_heap.top().second);
+            max_heap.pop();
+        }
+    }
+
+    // bare_bone_search means there is no check for deletions and stop condition is ignored in return of extra performance
+    template <bool bare_bone_search = true, bool collect_metrics = false>
+    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
+    searchBaseLayerSTPara(
+        tableint ep_id,
+        const void *data_point,
+        size_t ef,
+        BaseFilterFunctor* isIdAllowed = nullptr,
+        BaseSearchStopCondition<dist_t>* stop_condition = nullptr) {
+        std::cout<< "Parallel Search Knn" <<std::endl;
+        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
+        vl_type *visited_array = vl->mass;
+        vl_type visited_array_tag = vl->curV;
+
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidate_set;
+
+        dist_t lowerBound;
+        if (bare_bone_search || 
+            (!isMarkedDeleted(ep_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(ep_id))))) {
+            char* ep_data = getDataByInternalId(ep_id);
+            dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)ep_data);
+            lowerBound = dist;
+            top_candidates.emplace(dist, ep_id);
+            if (!bare_bone_search && stop_condition) {
+                stop_condition->add_point_to_result(getExternalLabel(ep_id), ep_data, dist);
+            }
+            candidate_set.emplace(-dist, ep_id);
+        } else {
+            lowerBound = std::numeric_limits<dist_t>::max();
+            candidate_set.emplace(-lowerBound, ep_id);
+        }
+
+        visited_array[ep_id] = visited_array_tag;
+
+        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> candidate_local(thread_num);
+        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> local_result(thread_num);
+
+        while (!candidate_set.empty()) {
+            std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
+            dist_t candidate_dist = -current_node_pair.first;
+
+            bool flag_stop_search;
+            if (bare_bone_search) {
+                flag_stop_search = candidate_dist > lowerBound;
+            } else {
+                if (stop_condition) {
+                    flag_stop_search = stop_condition->should_stop_search(candidate_dist, lowerBound);
+                } else {
+                    flag_stop_search = candidate_dist > lowerBound && top_candidates.size() == ef;
+                }
+            }
+            if (flag_stop_search) {
+                break;
+            }
+            candidate_set.pop();
+
+            candidate_local[0].emplace(-candidate_dist, current_node_pair.second);
+
+            while(!candidate_set.empty()){
+                for(int i = 1; i < thread_num; i++){
+                    if(candidate_set.empty()) break;
+                    candidate_local[i].emplace(candidate_set.top().first, candidate_set.top().second);
+                    candidate_set.pop();
+                }
+            }
+
+            #pragma omp parallel num_threads(thread_num)
+            {
+                int curr_thread_id = omp_get_thread_num();
+                for(int t = 0; t < local_rounds; t++){
+                    if(candidate_local.empty())
+                        break;
+                    std::pair<dist_t, tableint> current_node_pair_local = candidate_local[curr_thread_id].top();
+                    tableint current_node_id_local = current_node_pair_local.second;
+                    int *data = (int *) get_linklist0(current_node_id_local);
+                    size_t size = getListCount((linklistsizeint*)data);
+                    candidate_local[curr_thread_id].pop();
+                    for (size_t j = 1; j <= size; j++) {
+                        int candidate_id = *(data + j);
+        //                    if (candidate_id == 0) continue;
+                        if (!(visited_array[candidate_id] == visited_array_tag)) {
+                            visited_array[candidate_id] = visited_array_tag;
+
+                            char *currObj1 = (getDataByInternalId(candidate_id));
+                            dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)currObj1);
+
+                            // bool flag_consider_candidate;
+                            // if (!bare_bone_search && stop_condition) {
+                            //     flag_consider_candidate = stop_condition->should_consider_candidate(dist, lowerBound);
+                            // } else {
+                            //     flag_consider_candidate = top_candidates.size() < ef || lowerBound > dist;
+                            // }
+
+                            if(top_candidates.size() < ef || lowerBound > dist){
+                                candidate_local[curr_thread_id].emplace(-dist, candidate_id);
+                                local_result[curr_thread_id].emplace(dist, candidate_id);
+                                if(local_result[curr_thread_id].size() == ef)
+                                    local_result[curr_thread_id].pop();
+                            }
+                        }
+                    }
+                }
+            }
+            
+            update_top_candidate_para(top_candidates, local_result);
+
+            lowerBound = top_candidates.top().first;
+
+            bool delete_tail = false;
+            if(top_candidates.size() == ef_)
+                delete_tail = true;
+            update_candidate_set_para(candidate_set, candidate_local, delete_tail, lowerBound);
+            
+        }
+
+        visited_list_pool_->releaseVisitedList(vl);
+        return top_candidates;
+    }
 
     void getNeighborsByHeuristic2(
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_candidates,
@@ -1347,6 +1524,73 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return result;
     }
 
+
+    std::priority_queue<std::pair<dist_t, labeltype >>
+    searchKnnPara(const void *query_data, size_t k, BaseFilterFunctor* isIdAllowed = nullptr)  {
+        std::priority_queue<std::pair<dist_t, labeltype >> result;
+        if (cur_element_count == 0) return result;
+        // std::cout<< cur_element_count << std::endl;
+        tableint currObj = enterpoint_node_;
+        // if (getExternalLabel(enterpoint_node_) == 10) {
+        //     std::cout<< "=============================" << std::endl;
+        // }
+        dist_t curdist = fstdistfunc_((vectorset*)query_data, (vectorset*)getDataByInternalId(enterpoint_node_));
+        // if (getExternalLabel(enterpoint_node_) == 10) {
+        //     std::cout<< "=============================" << std::endl;
+        // }
+        for (int level = maxlevel_; level > 0; level--) {
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                unsigned int *data;
+
+                data = (unsigned int *) get_linklist(currObj, level);
+                int size = getListCount(data);
+                metric_hops++;
+                metric_distance_computations+=size;
+
+                tableint *datal = (tableint *) (data + 1);
+                for (int i = 0; i < size; i++) {
+                    tableint cand = datal[i];
+                    if (cand < 0 || cand > max_elements_)
+                        throw std::runtime_error("cand error");
+                    // if (getExternalLabel(cand) == 10) {
+                    //     std::cout<< "=============================" << std::endl;
+                    // }
+                    dist_t d = fstdistfunc_((vectorset*)query_data, (vectorset*)getDataByInternalId(cand));
+                    // if (getExternalLabel(cand) == 10) {
+                    //     std::cout<< "=============================" << std::endl;
+                    // }
+
+                    if (d < curdist) {
+                        curdist = d;
+                        currObj = cand;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        bool bare_bone_search = !num_deleted_ && !isIdAllowed;
+        if (bare_bone_search) {
+            top_candidates = searchBaseLayerSTPara<true>(
+                    currObj, query_data, std::max(ef_, k), isIdAllowed);
+        } else {
+            top_candidates = searchBaseLayerSTPara<false>(
+                    currObj, query_data, std::max(ef_, k), isIdAllowed);
+        }
+
+        while (top_candidates.size() > k) {
+            top_candidates.pop();
+        }
+        while (top_candidates.size() > 0) {
+            std::pair<dist_t, tableint> rez = top_candidates.top();
+            result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
+            top_candidates.pop();
+        }
+        return result;
+    }
 
     std::vector<std::pair<dist_t, labeltype >>
     searchStopConditionClosest(
