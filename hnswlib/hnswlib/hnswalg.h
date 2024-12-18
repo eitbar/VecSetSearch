@@ -1524,6 +1524,132 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return result;
     }
 
+    inline std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
+    getMinKUnique(
+        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>>& heaps, 
+        int k
+    ) {
+        // 1. 将所有元素弹出到一个vector中
+        std::vector<std::pair<dist_t, labeltype>> allElements;
+        for (auto &h : heaps) {
+            while (!h.empty()) {
+                allElements.push_back(h.top());
+                h.pop();
+            }
+        }
+
+        // 2. 按float值从小到大排序
+        std::sort(allElements.begin(), allElements.end(), [](const std::pair<dist_t, labeltype> &a, const std::pair<dist_t, labeltype> &b) {
+            return a.first < b.first;
+        });
+
+        // 3. 去重并获取前k个最小元素
+        std::unordered_set<labeltype> seen;
+        std::vector<std::pair<dist_t, labeltype>> selected;
+        for (auto &elem : allElements) {
+            if (seen.find(elem.second) == seen.end()) {
+                seen.insert(elem.second);
+                selected.push_back(elem);
+                if ((int)selected.size() == k) {
+                    break;
+                }
+            }
+        }
+
+        // 如果最终unique的元素不足k个，selected里就是所有unique元素
+
+        // 4. 将结果压入一个最大堆并返回
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> resultHeap;
+        for (auto &elem : selected) {
+            resultHeap.push(elem);
+        }
+
+        return resultHeap;
+    }
+
+    std::priority_queue<std::pair<dist_t, labeltype >>
+    searchKnnPara2(const void *query_data, size_t k, BaseFilterFunctor* isIdAllowed = nullptr)  {
+        std::priority_queue<std::pair<dist_t, labeltype >> result;
+        if (cur_element_count == 0) return result;
+        // std::cout<< cur_element_count << std::endl;
+        tableint currObj = enterpoint_node_;
+        // if (getExternalLabel(enterpoint_node_) == 10) {
+        //     std::cout<< "=============================" << std::endl;
+        // }
+        dist_t curdist = fstdistfunc_((vectorset*)query_data, (vectorset*)getDataByInternalId(enterpoint_node_));
+        // if (getExternalLabel(enterpoint_node_) == 10) {
+        //     std::cout<< "=============================" << std::endl;
+        // }
+        for (int level = maxlevel_; level > 0; level--) {
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                unsigned int *data;
+
+                data = (unsigned int *) get_linklist(currObj, level);
+                int size = getListCount(data);
+                metric_hops++;
+                metric_distance_computations+=size;
+
+                tableint *datal = (tableint *) (data + 1);
+                for (int i = 0; i < size; i++) {
+                    tableint cand = datal[i];
+                    if (cand < 0 || cand > max_elements_)
+                        throw std::runtime_error("cand error");
+                    // if (getExternalLabel(cand) == 10) {
+                    //     std::cout<< "=============================" << std::endl;
+                    // }
+                    dist_t d = fstdistfunc_((vectorset*)query_data, (vectorset*)getDataByInternalId(cand));
+                    // if (getExternalLabel(cand) == 10) {
+                    //     std::cout<< "=============================" << std::endl;
+                    // }
+
+                    if (d < curdist) {
+                        curdist = d;
+                        currObj = cand;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> top_candidate_local(thread_num);
+        //bool bare_bone_search = !num_deleted_ && !isIdAllowed;
+        // if (bare_bone_search) {
+        //     top_candidates = searchBaseLayerST<true>(
+        //             currObj, query_data, std::max(ef_, k), isIdAllowed);
+        // } else {
+        //     top_candidates = searchBaseLayerST<false>(
+        //             currObj, query_data, std::max(ef_, k), isIdAllowed);
+        // }
+        std::vector<tableint> obj_list(thread_num);
+        
+        obj_list[0] = currObj;
+
+        for(int i = 1; i < thread_num; i++){
+            obj_list[i] = rand() % cur_element_count;
+        }
+
+        #pragma omp parallel num_threads(thread_num)
+        {
+            int i = omp_get_thread_num();
+            top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
+            while (top_candidate_local[i].size() > k) 
+                top_candidate_local[i].pop();
+        } 
+
+        top_candidates = getMinKUnique(top_candidate_local, k);
+        while (top_candidates.size() > k) {
+            top_candidates.pop();
+        }
+        while (top_candidates.size() > 0) {
+            std::pair<dist_t, tableint> rez = top_candidates.top();
+            result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
+            top_candidates.pop();
+        }
+        return result;
+    }
 
     std::priority_queue<std::pair<dist_t, labeltype >>
     searchKnnPara(const void *query_data, size_t k, BaseFilterFunctor* isIdAllowed = nullptr)  {

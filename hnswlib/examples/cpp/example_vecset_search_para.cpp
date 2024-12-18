@@ -74,7 +74,7 @@ public:
 
     void search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
         res.clear();
-        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnPara(&query, k);
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnPara2(&query, k);
         for(int i = 0; i < k; i++){
             res.push_back(std::make_pair(result.top().second, result.top().first));
             result.pop();
