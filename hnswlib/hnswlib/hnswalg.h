@@ -1544,6 +1544,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         std::vector<std::pair<dist_t, labeltype>> allElements;
         for (auto &h : heaps) {
             while (!h.empty()) {
+                // std::cout << "hello: " << getExternalLabel(h.top().second) << " " << h.top().first << std::endl;
                 allElements.push_back(h.top());
                 h.pop();
             }
@@ -1645,8 +1646,9 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         }
 
         #pragma omp parallel num_threads(thread_num)
+        for(int i = 0; i < thread_num; i++)
         {
-            int i = omp_get_thread_num();
+            // int i = omp_get_thread_num();
             top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
             while (top_candidate_local[i].size() > k) 
                 top_candidate_local[i].pop();
@@ -1730,18 +1732,20 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
         for(int i = 1; i < thread_num; i++){
             // obj_list[i] = rand() % cur_element_count;
-            if (i < entry_points.size()) {
+            if (i <= entry_points.size()) {
                 std::unique_lock <std::mutex> lock_table(label_lookup_lock);
+                // std::cout << " " << entry_points[i - 1];
                 auto search = label_lookup_.find(entry_points[i - 1]);
                 obj_list[i] = search->second;
             } else {
                 obj_list[i] = rand() % cur_element_count;
             }
         }
-
+        // std::cout << std::endl;
         #pragma omp parallel num_threads(thread_num)
+        for(int i = 0; i < thread_num; i++)
         {
-            int i = omp_get_thread_num();
+            // int i = omp_get_thread_num();
             top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
             while (top_candidate_local[i].size() > k) 
                 top_candidate_local[i].pop();

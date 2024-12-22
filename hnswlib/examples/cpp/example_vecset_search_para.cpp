@@ -35,7 +35,7 @@ public:
         //std::cout<<"Calc Dis"<<std::endl;
         int base_offset = 0;
         for (size_t i = 0; i < base_vectors.size(); ++i) {
-            float chamfer_dist = hnswlib::L2SqrVecSet(&query, &base_vectors[i], 0);
+            float chamfer_dist = hnswlib::L2SqrVecSet4Search(&query, &base_vectors[i], 0);
             distances.push_back({chamfer_dist, static_cast<int>(i)});
         }
         //std::cout<<"return ans"<<std::endl;
@@ -84,6 +84,18 @@ public:
         return end_time - start_time;
     }
 
+    double searchFromEntries(const vectorset query, int k, std::vector<hnswlib::labeltype>& entry_points, std::vector<std::pair<int, float>>& res) const {
+        res.clear();
+        double start_time = omp_get_wtime();
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnParaFromEntries(&query, k, entry_points);
+        for(int i = 0; i < k; i++){
+            res.push_back(std::make_pair(result.top().second, result.top().first));
+            result.pop();
+        }
+        double end_time = omp_get_wtime();
+        return end_time - start_time;
+    }
+
 private:
     int dimension;
     std::vector<vectorset> base_vectors;
@@ -97,7 +109,7 @@ void generate_vector_sets(std::vector<float>& base_data, std::vector<vectorset>&
                           std::vector<float>& query_data, std::vector<vectorset>& query, 
                           int num_base_sets, int num_query_sets) {
     std::random_device rd;
-    std::mt19937 gen(rd());
+    std::mt19937 gen(42);
     std::uniform_real_distribution<float> dis(-1.0, 1.0);
     std::uniform_int_distribution<int> vec_count_dis(BASE_VECTOR_SET_MIN, BASE_VECTOR_SET_MAX);
 
@@ -186,10 +198,18 @@ int main() {
     #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < NUM_QUERY_SETS; ++i) {
         std::vector<std::pair<int, float>> ground_truth_indices, solution_indices;
+        std::vector<hnswlib::labeltype> entry_points;
+        entry_points.resize(3);
         // Search with GroundTruth
         ground_truth.search(query[i], K, ground_truth_indices);
-        double query_time = solution.search(query[i], K, solution_indices);
+        entry_points[0] = (hnswlib::labeltype) ground_truth_indices[5].first;
+        entry_points[1] = (hnswlib::labeltype) ground_truth_indices[10].first;
+        entry_points[2] = (hnswlib::labeltype) ground_truth_indices[15].first;
+
+        // double query_time = solution.search(query[i], K, solution_indices);
+        double query_time = solution.searchFromEntries(query[i], K, entry_points, solution_indices);
         total_query_time += query_time;
+        
 
         // std::cout<<"BruteForce Result: ";
         // for(int j = 0 ; j < ground_truth_indices.size(); j++)
@@ -205,6 +225,7 @@ int main() {
         double recall = calculate_recall(solution_indices, ground_truth_indices);
         total_recall += recall;
         std::cout << "Recall for query set " << i << ": " << recall << std::endl;
+        // std::cout << "Recall for query set " << i << ": " << recall << " " << entry_points[0] << " " << entry_points[1] << " " << entry_points[2] << " " << solution_indices[0].first << " " << solution_indices[1].first << " " << solution_indices[2].first << std::endl;
     }
 
     // Calculate average recall
