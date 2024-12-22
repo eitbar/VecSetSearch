@@ -35,7 +35,7 @@ public:
         //std::cout<<"Calc Dis"<<std::endl;
         int base_offset = 0;
         for (size_t i = 0; i < base_vectors.size(); ++i) {
-            float chamfer_dist = hnswlib::L2SqrVecSet(&query, &base_vectors[i]);
+            float chamfer_dist = hnswlib::L2SqrVecSet(&query, &base_vectors[i], 0);
             distances.push_back({chamfer_dist, static_cast<int>(i)});
         }
         //std::cout<<"return ans"<<std::endl;
@@ -72,13 +72,16 @@ public:
         // Add any necessary pre-computation or indexing for the optimized search
     }
 
-    void search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
+    double search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
         res.clear();
+        double start_time = omp_get_wtime();
         std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnPara2(&query, k);
         for(int i = 0; i < k; i++){
             res.push_back(std::make_pair(result.top().second, result.top().first));
             result.pop();
         }
+        double end_time = omp_get_wtime();
+        return end_time - start_time;
     }
 
 private:
@@ -170,7 +173,6 @@ int main() {
     std::vector<vectorset> query;
     // Generate dataset
     generate_vector_sets(base_data, base, query_data, query, NUM_BASE_SETS, NUM_QUERY_SETS);
-    
 
     GroundTruth ground_truth;
     ground_truth.build(VECTOR_DIM, base);
@@ -178,6 +180,7 @@ int main() {
     Solution solution;
     solution.build(VECTOR_DIM, base);
     double total_recall = 0.0;
+    double total_query_time = 0.0;
 
     std::cout<<"Processing Queries"<<std::endl;
     #pragma omp parallel for schedule(dynamic)
@@ -185,17 +188,20 @@ int main() {
         std::vector<std::pair<int, float>> ground_truth_indices, solution_indices;
         // Search with GroundTruth
         ground_truth.search(query[i], K, ground_truth_indices);
-        std::cout<<"BruteForce Result: ";
-        for(int j = 0 ; j < ground_truth_indices.size(); j++)
-            std::cout<<ground_truth_indices[j].first<<":"<<ground_truth_indices[j].second<<std::endl;
-        std::cout<<std::endl;
-        // Search with Solution
-        solution.search(query[i], K, solution_indices);
-        std::cout<<"HNSW Result: ";
-        for(int j = 0 ; j < solution_indices.size(); j++)
-            std::cout<<solution_indices[j].first<<":"<<solution_indices[j].second<<std::endl;
-        std::cout<<std::endl<<std::endl;
-        // Calculate recall for this query set
+        double query_time = solution.search(query[i], K, solution_indices);
+        total_query_time += query_time;
+
+        // std::cout<<"BruteForce Result: ";
+        // for(int j = 0 ; j < ground_truth_indices.size(); j++)
+        //     std::cout<<ground_truth_indices[j].first<<":"<<ground_truth_indices[j].second<<std::endl;
+        // std::cout<<std::endl;
+        // // Search with Solution
+        // solution.search(query[i], K, solution_indices);
+        // std::cout<<"HNSW Result: ";
+        // for(int j = 0 ; j < solution_indices.size(); j++)
+        //     std::cout<<solution_indices[j].first<<":"<<solution_indices[j].second<<std::endl;
+        // std::cout<<std::endl<<std::endl;
+        // // Calculate recall for this query set
         double recall = calculate_recall(solution_indices, ground_truth_indices);
         total_recall += recall;
         std::cout << "Recall for query set " << i << ": " << recall << std::endl;
@@ -204,6 +210,7 @@ int main() {
     // Calculate average recall
     double average_recall = total_recall / NUM_QUERY_SETS;
     std::cout << "Average Recall: " << average_recall << std::endl;
+    std::cout << "Average query time: " << total_query_time/NUM_QUERY_SETS << " seconds" << std::endl;
 
     return 0;
 }

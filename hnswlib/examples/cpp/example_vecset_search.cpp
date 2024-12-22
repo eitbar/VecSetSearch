@@ -35,7 +35,7 @@ public:
         //std::cout<<"Calc Dis"<<std::endl;
         int base_offset = 0;
         for (size_t i = 0; i < base_vectors.size(); ++i) {
-            float chamfer_dist = hnswlib::L2SqrVecSet(&query, &base_vectors[i]);
+            float chamfer_dist = hnswlib::L2SqrVecSet(&query, &base_vectors[i], 0);
             distances.push_back({chamfer_dist, static_cast<int>(i)});
         }
         //std::cout<<"return ans"<<std::endl;
