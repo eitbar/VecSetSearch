@@ -60,7 +60,7 @@ public:
         dimension = d;
         base_vectors = base;
         space_ptr = new hnswlib::L2VSSpace(dimension);
-        alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, NUM_BASE_SETS, 16, 80);
+        alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, base_vectors.size() + 1, 16, 80);
         #pragma omp parallel for schedule(dynamic)
         for(hnswlib::labeltype i = 0; i < base_vectors.size(); i++){
             if (i % 1000 == 0) {
@@ -72,13 +72,28 @@ public:
         // Add any necessary pre-computation or indexing for the optimized search
     }
 
-    void search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
+    double search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
         res.clear();
-        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnn(&query, k);
+        double start_time = omp_get_wtime();
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnPara2(&query, k);
         for(int i = 0; i < k; i++){
             res.push_back(std::make_pair(result.top().second, result.top().first));
             result.pop();
         }
+        double end_time = omp_get_wtime();
+        return end_time - start_time;
+    }
+
+    double searchFromEntries(const vectorset query, int k, std::vector<hnswlib::labeltype>& entry_points, std::vector<std::pair<int, float>>& res) const {
+        res.clear();
+        double start_time = omp_get_wtime();
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnParaFromEntries(&query, k, entry_points);
+        for(int i = 0; i < k; i++){
+            res.push_back(std::make_pair(result.top().second, result.top().first));
+            result.pop();
+        }
+        double end_time = omp_get_wtime();
+        return end_time - start_time;
     }
 
 private:
@@ -176,13 +191,18 @@ void demo_test_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
 }
 
 
+
 void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& base,
                        std::vector<float>& query_data, std::vector<vectorset>& query, 
                        int file_numbers, std::vector<std::vector<int>>& qrels) {
-    int offset = 0;                    
+    long long offset = 0;  
+    long long all_elements = 0;   
+    std::string qembfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qembs_32_6980.npy";
+    std::string qrelfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qrels_6980.tsv";    
+
     for (int i = 0; i < file_numbers; i++) {
-        std::string embfile_name = "/ssddata/0.6b_128d_dataset/encoding" + std::to_string(i) + "_float16.npy";
-        std::string lensfile_name = "/ssddata/0.6b_128d_dataset/doclens" + std::to_string(i) + ".npy";
+        std::string embfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/encoding" + std::to_string(i) + "_float16.npy";
+        std::string lensfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/doclens" + std::to_string(i) + ".npy";
         cnpy::NpyArray arr_npy = cnpy::npy_load(embfile_name);
         cnpy::NpyArray lens_npy = cnpy::npy_load(lensfile_name);
         uint16_t* raw_vec_data = arr_npy.data<uint16_t>();
@@ -193,9 +213,10 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
         std::cout << "Processing file " << i << std::endl;
         // assert (doc_num == 25000);
         
-        for (size_t i = 0; i < num_elements; ++i) {
-            base_data.push_back(static_cast<float>(half_to_float(raw_vec_data[i])));
+        for (long long i = 0; i < num_elements; ++i) {
+            base_data[all_elements + i] = (static_cast<float>(half_to_float(raw_vec_data[i])));
         }
+        all_elements += num_elements;
         
         for (int i = 0; i < doc_num; ++i) {
             base.push_back(vectorset(base_data.data() + offset, VECTOR_DIM, lens_data[i].real()));
@@ -203,31 +224,25 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
         }
     }
 
-    std::string qembfile_name = "/ssddata/0.6b_128d_dataset/qembs_6980.npy";
-    std::string qlensfile_name = "/ssddata/0.6b_128d_dataset/qlens_6980.npy";
     cnpy::NpyArray qembs_npy = cnpy::npy_load(qembfile_name);
-    cnpy::NpyArray qlens_npy = cnpy::npy_load(qlensfile_name);
 
-    uint16_t* raw_qembs_data = qembs_npy.data<uint16_t>();
-    size_t num_qembs_elements = qembs_npy.shape[0] * qembs_npy.shape[1];
-
-    std::complex<int>* qlens_data = qlens_npy.data<std::complex<int>>();
-    size_t q_num = qlens_npy.shape[0];
+    float* raw_qembs_data = qembs_npy.data<float>();
+    size_t num_qembs_elements = NUM_QUERY_SETS * qembs_npy.shape[1] * qembs_npy.shape[2];
+    size_t q_num = NUM_QUERY_SETS;
 
     int q_offset = 0;
-    assert (q_num == 6980);
     
     for (size_t i = 0; i < num_qembs_elements; ++i) {
-        query_data.push_back(static_cast<float>(half_to_float(raw_qembs_data[i])));
+        query_data[i] = (static_cast<float>((raw_qembs_data[i])));
     }
     
     for (int i = 0; i < q_num; ++i) {
-        query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, qlens_data[i].real()));
-        q_offset += qlens_data[i].real() * VECTOR_DIM;
+        query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, 32));
+        q_offset += 32 * VECTOR_DIM;
     }
     qrels.resize(q_num + 1);
 
-    std::ifstream file("/ssddata/vecDB_publi_data/0.6b_128d_dataset/qrels_6980.tsv");
+    std::ifstream file(qrelfile_name);
     std::string line;
     while (std::getline(file, line)) { // 逐行读取
         std::istringstream iss(line);  // 创建字符串流
@@ -235,10 +250,11 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
         char delimiter;                // 用于捕获 \t 分隔符
 
         // 读取两个整数，用 \t 作为分隔符
-        if (iss >> num1 >> delimiter >> num2) {
+        if (iss >> num1 >> num2) {
             if (num1 < 0 || num1 >= q_num) {
                 std::cerr << "?" << line << std::endl;
             } else {
+                // std::cout << num1 << " " << num2 << std::endl;
                 qrels[num1].push_back(num2);
             }
         }
@@ -247,6 +263,87 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
 
     std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << " " << qrels.size() << std::endl;
 }
+
+
+void subset_test_msmarco(std::vector<float>& base_data, std::vector<vectorset>& base,
+                       std::vector<float>& query_data, std::vector<vectorset>& query, 
+                       std::vector<std::vector<int>>& qrels) {
+    int offset = 0;  
+    int q_offset = 0; 
+    // CPU1         
+    // std::string docembs_filename = "/ssddata/0.6b_128d_dataset/msmacro_subset_100q_95kp/doc_embs.npy";  
+    // std::string doclens_filename = "/ssddata/0.6b_128d_dataset/msmacro_subset_100q_95kp/doc_lens.npy";  
+    // std::string qembs_filename = "/ssddata/0.6b_128d_dataset/msmacro_subset_100q_95kp/qembs.npy";      
+    // std::string qrels_filename = "/ssddata/0.6b_128d_dataset/msmacro_subset_100q_95kp/qrels.tsv";
+
+    // CPU5
+    std::string docembs_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/doc_embs.npy";  
+    std::string doclens_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/doc_lens.npy";  
+    std::string qembs_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/qembs.npy";      
+    std::string qrels_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/qrels.tsv";
+
+    cnpy::NpyArray docembs_npy = cnpy::npy_load(docembs_filename);
+    cnpy::NpyArray doclens_npy = cnpy::npy_load(doclens_filename);
+    cnpy::NpyArray qembs_npy = cnpy::npy_load(qembs_filename);
+
+    uint16_t* raw_docembs_data = docembs_npy.data<uint16_t>();
+    size_t docembs_elements = docembs_npy.shape[0] * docembs_npy.shape[1];
+    
+    std::complex<int>* doclens_data = doclens_npy.data<std::complex<int>>();
+    size_t doclens_elements = doclens_npy.shape[0];
+    
+    float* raw_qembs_data = qembs_npy.data<float>();
+    size_t qembs_elements = qembs_npy.shape[0] * qembs_npy.shape[1] * qembs_npy.shape[2];
+
+    int doc_num = doclens_elements;
+    int q_num = qembs_npy.shape[0];
+    int q_vec_len = qembs_npy.shape[1];
+    // std::cout << "doc_num " << doclens_npy.shape[0] << std::endl;
+    // std::cout << "q_num " << doclens_npy.shape[1] << std::endl;
+    // std::cout << "q_vec_len " << q_vec_len << std::endl;
+
+    for (size_t i = 0; i < docembs_elements; ++i) {
+        base_data[i] = (static_cast<float>(half_to_float(raw_docembs_data[i])));
+    }
+    std::cout << "load doc float data: " << base_data.size() << std::endl;
+    for (int i = 0; i < doc_num; ++i) {
+        base.push_back(vectorset(base_data.data() + offset, VECTOR_DIM, doclens_data[i].real()));
+        offset += doclens_data[i].real() * VECTOR_DIM;
+    }   
+    std::cout << "load doc data: " << base.size() << std::endl;
+    for (size_t i = 0; i < qembs_elements; ++i) {
+        query_data[i] = (static_cast<float>((raw_qembs_data[i])));
+    }
+    std::cout << "load query float data: " << query_data.size() << std::endl;
+    for (int i = 0; i < q_num; ++i) {
+        query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, q_vec_len));
+        q_offset += q_vec_len * VECTOR_DIM;
+    }
+    std::cout << "load query data: " << query.size() << std::endl;
+    qrels.resize(q_num + 1);
+    std::ifstream file(qrels_filename);
+    std::string line;
+    while (std::getline(file, line)) { // 逐行读取
+        std::istringstream iss(line);  // 创建字符串流
+        int num1, num2;
+        char delimiter;                // 用于捕获 \t 分隔符
+
+        // 读取两个整数，用 \t 作为分隔符
+        // std::cout << line << std::endl;
+        // std::cout << "?" << std::endl;
+        if (iss >> num1 >> num2) {
+            if (num1 < 0 || num1 >= q_num) {
+                std::cerr << "?" << line << std::endl;
+            } else {
+                // std::cout << num1 << " " << num2 << std::endl;
+                qrels[num1].push_back(num2);
+            }
+        }
+    }
+    file.close();
+    std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << " " << qrels.size() << std::endl;
+}
+
 
 void generate_vector_sets(std::vector<float>& base_data, std::vector<vectorset>& base,
                           std::vector<float>& query_data, std::vector<vectorset>& query, 
@@ -299,6 +396,42 @@ void generate_vector_sets(std::vector<float>& base_data, std::vector<vectorset>&
     std::cout << "Sample value from base_data: " << base_data[16] << std::endl;
 }
 
+void readGroundTruth(const std::string& ground_truth_file, std::vector<std::vector<std::pair<int, float>>>& ground_truth_indices) {
+    std::ifstream inFile(ground_truth_file);
+    if (!inFile.is_open()) {
+        std::cerr << "Error opening file: " << ground_truth_file << std::endl;
+        return;
+    }
+
+    std::string line;
+    while (std::getline(inFile, line)) {
+        std::vector<std::pair<int, float>> query_results;
+        std::istringstream line_stream(line);
+
+        int index;
+        float distance;
+        while (line_stream >> index >> distance) {
+            query_results.emplace_back(index, distance);
+        }
+        
+        ground_truth_indices.push_back(query_results);
+    }
+
+    inFile.close();
+}
+
+std::vector<int> generateEntriesIndex(int multi_entries_num, int n) {
+    std::vector<int> numbers;
+    for (int i = 0; i < 100; ++i) {
+        numbers.push_back(i);
+    }
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::shuffle(numbers.begin(), numbers.end(), gen);
+    numbers.resize(multi_entries_num);
+    return numbers;
+}
+
 double calculate_recall_for_msmacro(const std::vector<std::pair<int, float>>& solution_indices,
                         const std::vector<int>& ground_truth_indices) {
     std::unordered_set<int> solution_set;
@@ -348,75 +481,94 @@ int main() {
     std::vector<vectorset> base;
     std::vector<vectorset> query;
     std::vector<std::vector<int>> qrels;
-    base_data.resize((long long) 25000 * MSMACRO_TEST_NUMBER * VECTOR_DIM * 80);
-    // Generate dataset
-    // generate_vector_sets(base_data, base, query_data, query, NUM_BASE_SETS, NUM_QUERY_SETS);
-    demo_test_msmarco(base_data, base, query_data, query, MSMACRO_TEST_NUMBER, qrels);
-    // std::cout<<"outliner"<< std::endl;
-    // for (int i = 0; i<base.size(); i++){
-    //     for(int j = 0; j < base[i].dim * base[i].vecnum; j++) {
-    //         if(*(base[i].data + j) > 1 ||  *(base[i].data + j) < -1)
-    //             std::cout << "outliner" << *(base[i].data + j) << std::endl;
-    //     }
-    // }
+    std::vector<std::vector<std::pair<int, float>>> bf_ground_truth;
+    bool test_subset = true;
+    bool load_bf_from_cache = true;
+    bool single_sumax = false;
+    int multi_entries_num = 3;
+    int multi_entries_range = 50;
+    std::string ground_truth_file = "../examples/caches/ground_truth_bi_summax_l2_top100.txt";
 
+    
+    if (test_subset) {
+        // test on collected 95k msmacro subset
+        base_data.resize((long long) 96000 * VECTOR_DIM * 80);
+        query_data.resize((long long) NUM_QUERY_SETS * VECTOR_DIM * 32);
+        subset_test_msmarco(base_data, base, query_data, query, qrels);
+        if (single_sumax) {
+            ground_truth_file = "../examples/caches/95k_ground_truth_single_summax_l2_top100.txt";
+        } else {
+            ground_truth_file = "../examples/caches/95k_ground_truth_bi_summax_l2_top100.txt";
+        }
+        
+    } else {
+        // test on all msmacro dataset
+        base_data.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 128 * 80);
+        query_data.resize((long long) NUM_QUERY_SETS * 128 * 32 + 1);
+        load_from_msmarco(base_data, base, query_data, query, MSMACRO_TEST_NUMBER, qrels);
+        if (single_sumax) {
+            ground_truth_file = "../examples/caches/ground_truth_single_summax_l2_top100.txt";
+        }
+    }
 
-    // msmacro test:
-    // Solution solution;
-    // solution.build(VECTOR_DIM, base);
-    // double total_recall = 0.0;
-    // int topk = 100;
-    // std::cout<<"Processing Queries"<<std::endl;
-    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-    //     std::vector<std::pair<int, float>> ground_truth_indices, solution_indices;
-    //     solution.search(query[i], topk, solution_indices);
-    //     // std::cout<<"HNSW Result: ";
-    //     // for(int j = 0 ; j < solution_indices.size(); j++)
-    //     //     std::cout<<solution_indices[j].first<<":"<<solution_indices[j].second<<std::endl;
-    //     // std::cout<<std::endl<<std::endl;
-    //     // Calculate recall for this query set
-    //     double recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
-    //     total_recall += recall;
-    //     // std::cout << "Recall for query set " << i << ": " << recall << std::endl;
-    // }
+    if (!load_bf_from_cache) {
+        GroundTruth ground_truth;
+        ground_truth.build(VECTOR_DIM, base);
+        std::cout<< "Generate BF Groundtruth" <<std::endl;
 
-    // // Calculate average recall
-    // double average_recall = total_recall / NUM_QUERY_SETS;
-    // std::cout << "Average Recall: " << average_recall << std::endl;
+        std::ofstream outFile(ground_truth_file);
+        for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+            std::vector<std::pair<int, float>> ground_truth_indices;
+            ground_truth.search(query[i], K, ground_truth_indices);
+            for (int j = 0; j < K; j++) {
+                outFile << ground_truth_indices[j].first << " " << ground_truth_indices[j].second << " ";
+            }
+            outFile << "\n";
+            outFile.flush();
+        }
+        std::cout<< "Generate BF Groundtruth Finish!" <<std::endl;
+    }
 
-    // random test:
+    readGroundTruth(ground_truth_file, bf_ground_truth);
 
-    GroundTruth ground_truth;
-    ground_truth.build(VECTOR_DIM, base);
-    std::cout<< "Generate Groundtruth and Dataset" <<std::endl;
     Solution solution;
     solution.build(VECTOR_DIM, base);
     double total_recall = 0.0;
+    double total_dataset_hnsw_recall = 0.0;
+    double total_dataset_bf_recall = 0.0;
+    double total_query_time = 0.0;
 
-    std::cout<<"Processing Queries"<<std::endl;
+    std::cout<<"Processing Queries HNSW"<<std::endl;
+    #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-        std::vector<std::pair<int, float>> ground_truth_indices, solution_indices;
-        // Search with GroundTruth
-        ground_truth.search(query[i], K, ground_truth_indices);
-        std::cout<<"BruteForce Result: ";
-        for(int j = 0 ; j < ground_truth_indices.size(); j++)
-            std::cout<<ground_truth_indices[j].first<<":"<<ground_truth_indices[j].second<<std::endl;
-        std::cout<<std::endl;
-        // Search with Solution
-        solution.search(query[i], K, solution_indices);
-        // std::cout<<"HNSW Result: ";
-        // for(int j = 0 ; j < solution_indices.size(); j++)
-        //     std::cout<<solution_indices[j].first<<":"<<solution_indices[j].second<<std::endl;
-        // std::cout<<std::endl<<std::endl;
-        // Calculate recall for this query set
-        double recall = calculate_recall(solution_indices, ground_truth_indices);
+        std::vector<std::pair<int, float>> solution_indices;
+        std::vector<hnswlib::labeltype> entry_points;
+        entry_points.resize(multi_entries_num);
+        std::vector<int> entry_point_index = generateEntriesIndex(multi_entries_num, multi_entries_range);
+        for (int j = 0; j < multi_entries_num; j++) {
+            entry_points.push_back(bf_ground_truth[i][entry_point_index[j]].first);
+        }
+        // double query_time = solution.search(query[i], K, solution_indices);
+        double query_time = solution.searchFromEntries(query[i], K, entry_points, solution_indices);
+        total_query_time += query_time;
+        double recall = calculate_recall(solution_indices, bf_ground_truth[i]);
         total_recall += recall;
-        std::cout << "Recall for query set " << i << ": " << recall << std::endl;
+        double dataset_hnsw_recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
+        total_dataset_hnsw_recall += dataset_hnsw_recall;
+        double dataset_bf_recall = calculate_recall_for_msmacro(bf_ground_truth[i], qrels[i]);
+        total_dataset_bf_recall += dataset_bf_recall;
+        std::cout << "Recall for query set " << i << ": " << recall << " " << dataset_hnsw_recall << " " << dataset_bf_recall << std::endl;
     }
 
     // Calculate average recall
     double average_recall = total_recall / NUM_QUERY_SETS;
+    double average_dataset_hnsw_recall = total_dataset_hnsw_recall / NUM_QUERY_SETS;
+    double average_dataset_bf_recall = total_dataset_bf_recall / NUM_QUERY_SETS;
     std::cout << "Average Recall: " << average_recall << std::endl;
+    std::cout << "Average Dataset HNSW Recall: " << average_dataset_hnsw_recall << std::endl;
+    std::cout << "Average Dataset BF Recall: " << average_dataset_bf_recall << std::endl;
+    std::cout << "Average query time: " << total_query_time/NUM_QUERY_SETS << " seconds" << std::endl;
 
     return 0;
+
 }
