@@ -484,31 +484,40 @@ int main() {
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth;
     bool test_subset = true;
     bool load_bf_from_cache = true;
-    bool single_sumax = false;
+    int dist_metric = 2;
     int multi_entries_num = 3;
     int multi_entries_range = 50;
-    std::string ground_truth_file = "../examples/caches/ground_truth_bi_summax_l2_top100.txt";
-
+    std::string ground_truth_file;
+    if (dist_metric == 0) {
+        if (test_subset) {
+            ground_truth_file = "../examples/caches/95k_ground_truth_bi_summax_l2_top100.txt";
+        } else {
+            ground_truth_file = "../examples/caches/ground_truth_bi_summax_l2_top100.txt";
+        }
+    } else if (dist_metric == 1) {
+        if (test_subset) {
+            ground_truth_file = "../examples/caches/95k_ground_truth_single_summax_l2_top100.txt";
+        } else {
+            ground_truth_file = "../examples/caches/ground_truth_single_summax_l2_top100.txt";
+        }
+    } else {
+        if (test_subset) {
+            ground_truth_file = "../examples/caches/95k_ground_truth_new_summax_l2_top100.txt";
+        } else {
+            ground_truth_file = "../examples/caches/ground_truth_new_summax_l2_top100.txt";
+        }        
+    }
     
     if (test_subset) {
         // test on collected 95k msmacro subset
         base_data.resize((long long) 96000 * VECTOR_DIM * 80);
         query_data.resize((long long) NUM_QUERY_SETS * VECTOR_DIM * 32);
-        subset_test_msmarco(base_data, base, query_data, query, qrels);
-        if (single_sumax) {
-            ground_truth_file = "../examples/caches/95k_ground_truth_single_summax_l2_top100.txt";
-        } else {
-            ground_truth_file = "../examples/caches/95k_ground_truth_bi_summax_l2_top100.txt";
-        }
-        
+        subset_test_msmarco(base_data, base, query_data, query, qrels);     
     } else {
         // test on all msmacro dataset
         base_data.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 128 * 80);
         query_data.resize((long long) NUM_QUERY_SETS * 128 * 32 + 1);
         load_from_msmarco(base_data, base, query_data, query, MSMACRO_TEST_NUMBER, qrels);
-        if (single_sumax) {
-            ground_truth_file = "../examples/caches/ground_truth_single_summax_l2_top100.txt";
-        }
     }
 
     if (!load_bf_from_cache) {
