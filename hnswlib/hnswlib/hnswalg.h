@@ -520,7 +520,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         size_t ef,
         BaseFilterFunctor* isIdAllowed = nullptr,
         BaseSearchStopCondition<dist_t>* stop_condition = nullptr) {
-        std::cout<< "Parallel Search Knn" << "bare bone search" << bare_bone_search <<std::endl;
+        // std::cout<< "Parallel Search Knn" << "bare bone search" << bare_bone_search <<std::endl;
         VisitedList *vl = visited_list_pool_->getFreeVisitedList();
         vl_type *visited_array = vl->mass;
         vl_type visited_array_tag = vl->curV;
@@ -580,16 +580,22 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
 
             #pragma omp parallel num_threads(thread_num)
+            // for (int tid = 0; tid < thread_num; tid++)
             {
                 int curr_thread_id = omp_get_thread_num();
+                // int curr_thread_id = tid;
+                std::cout<<"curr_thread_id: " << curr_thread_id<<std::endl;
                 for(int t = 0; t < local_rounds; t++){
-                    if(candidate_local.empty())
+                    if(candidate_local[curr_thread_id].empty())
                         break;
+                    // std::cout<<"curr_thread_id: " << curr_thread_id<< " " << t << " "<< candidate_local[curr_thread_id].size() << std::endl;
                     std::pair<dist_t, tableint> current_node_pair_local = candidate_local[curr_thread_id].top();
+                    // std::cout<<"curr_thread_id: " << curr_thread_id<< " top " << t <<std::endl;
                     tableint current_node_id_local = current_node_pair_local.second;
                     int *data = (int *) get_linklist0(current_node_id_local);
                     size_t size = getListCount((linklistsizeint*)data);
                     candidate_local[curr_thread_id].pop();
+                    // std::cout<<"curr_thread_id: " << curr_thread_id<< " pop " << t <<std::endl;
                     for (size_t j = 1; j <= size; j++) {
                         int candidate_id = *(data + j);
         //                    if (candidate_id == 0) continue;
@@ -1644,12 +1650,13 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         for(int i = 1; i < thread_num; i++){
             obj_list[i] = rand() % cur_element_count;
         }
-
-        #pragma omp parallel num_threads(thread_num)
+        // for(int i = 0; i < thread_num; i++)
+        // #pragma omp parallel num_threads(thread_num) schedule(dynamic)
+        #pragma omp parallel for schedule(dynamic)
         for(int i = 0; i < thread_num; i++)
         {
             // int i = omp_get_thread_num();
-            top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
+            top_candidate_local[i] = searchBaseLayerSTPara<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
             while (top_candidate_local[i].size() > k) 
                 top_candidate_local[i].pop();
         } 
@@ -1742,10 +1749,13 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
         }
         // std::cout << std::endl;
+        // #pragma omp parallel num_threads(thread_num)
+        // #pragma omp parallel for schedule(dynamic)
         #pragma omp parallel num_threads(thread_num)
-        for(int i = 0; i < thread_num; i++)
+        // for(int i = 0; i < thread_num; i++)
         {
-            // int i = omp_get_thread_num();
+            int i = omp_get_thread_num();
+            // std::cout<<i<<std::endl;
             top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
             while (top_candidate_local[i].size() > k) 
                 top_candidate_local[i].pop();

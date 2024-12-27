@@ -475,6 +475,8 @@ double calculate_recall(const std::vector<std::pair<int, float>>& solution_indic
 }
 
 int main() {
+    omp_set_nested(1);
+
     std::vector<float> base_data;
     std::vector<int> base_vec_num;
     std::vector<float> query_data;
