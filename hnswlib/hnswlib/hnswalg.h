@@ -486,28 +486,46 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     inline void update_candidate_set_para(std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &cand_total, std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> &cand_local, bool delete_tail, dist_t lowerbound){
         std::set<int> seen;
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> max_heap;
+        // std::cout << cand_total.size() << std::endl;
         while(!cand_total.empty()){
             if(seen.find(cand_total.top().second) == seen.end()){
-                max_heap.emplace(cand_total.top().first, cand_total.top().second);
+                max_heap.emplace(-cand_total.top().first, cand_total.top().second);
                 seen.insert(cand_total.top().second);
             }
             cand_total.pop();
         }
 
         for(int i=0 ;i<cand_local.size(); i++){
+            // std::cout << cand_local[i].size() << std::endl;
             while(!cand_local[i].empty()){
                 if(seen.find(cand_local[i].top().second) == seen.end()){
-                    max_heap.emplace(cand_local[i].top().first, cand_local[i].top().second);
+                    max_heap.emplace(-cand_local[i].top().first, cand_local[i].top().second);
                     seen.insert(cand_local[i].top().second);
                 }
                 cand_local[i].pop();
             }
         }
 
-        while(!max_heap.empty() && max_heap.size() < ef_){
-            if(delete_tail && max_heap.top().first < -lowerbound) break;
-            cand_total.emplace(max_heap.top().first, max_heap.top().second);
+        // while(!max_heap.empty() && max_heap.size() < ef_){
+        //     if(delete_tail && max_heap.top().first < -lowerbound) break;
+        //     cand_total.emplace(max_heap.top().first, max_heap.top().second);
+        //     max_heap.pop();
+        // }
+
+        // std::cout << max_heap.top().first << " " << max_heap.size() << " " << lowerbound << std::endl;
+        while(!max_heap.empty() && max_heap.size() > ef_){
             max_heap.pop();
+        }
+        
+        while(!max_heap.empty() && cand_total.size() < ef_){
+            // std::cout << max_heap.top().first << " " << lowerbound << std::endl;
+            if(delete_tail && max_heap.top().first >= lowerbound) {
+                max_heap.pop();
+            }
+            else {
+                cand_total.emplace(-max_heap.top().first, max_heap.top().second);
+                max_heap.pop();
+            }
         }
     }
 
@@ -584,7 +602,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             {
                 int curr_thread_id = omp_get_thread_num();
                 // int curr_thread_id = tid;
-                std::cout<<"curr_thread_id: " << curr_thread_id<<std::endl;
+                // std::cout<<"curr_thread_id: " << curr_thread_id<<std::endl;
                 for(int t = 0; t < local_rounds; t++){
                     if(candidate_local[curr_thread_id].empty())
                         break;
@@ -628,9 +646,11 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             lowerBound = top_candidates.top().first;
 
             bool delete_tail = false;
-            if(top_candidates.size() == ef_)
+            if(top_candidates.size() >= ef_)
                 delete_tail = true;
+            // std::cout<<candidate_set.size()<<std::endl;
             update_candidate_set_para(candidate_set, candidate_local, delete_tail, lowerBound);
+            // std::cout<<candidate_set.size()<<std::endl;
             
         }
 
@@ -1756,7 +1776,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         {
             int i = omp_get_thread_num();
             // std::cout<<i<<std::endl;
-            top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
+            top_candidate_local[i] = searchBaseLayerSTPara<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
+            // top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
             while (top_candidate_local[i].size() > k) 
                 top_candidate_local[i].pop();
         } 
