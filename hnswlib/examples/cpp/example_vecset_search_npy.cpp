@@ -277,10 +277,17 @@ void subset_test_msmarco(std::vector<float>& base_data, std::vector<vectorset>& 
     // std::string qrels_filename = "/ssddata/0.6b_128d_dataset/msmacro_subset_100q_95kp/qrels.tsv";
 
     // CPU5
-    std::string docembs_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/doc_embs.npy";  
-    std::string doclens_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/doc_lens.npy";  
-    std::string qembs_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/qembs.npy";      
-    std::string qrels_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/qrels.tsv";
+    // std::string docembs_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/doc_embs.npy";  
+    // std::string doclens_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/doc_lens.npy";  
+    // std::string qembs_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/qembs.npy";      
+    // std::string qrels_filename = "/ssddata/vecDB_publi_data/0.6b_128d_dataset/msmacro_subset_100q_95kp/qrels.tsv";
+
+
+    // CPU5
+    std::string docembs_filename = "/home/zhoujin/vecDB_publi_data/msmacro_subset_100q_95kp/doc_embs.npy";  
+    std::string doclens_filename = "/home/zhoujin/vecDB_publi_data/msmacro_subset_100q_95kp/doc_lens.npy";  
+    std::string qembs_filename = "/home/zhoujin/vecDB_publi_data/msmacro_subset_100q_95kp/qembs.npy";      
+    std::string qrels_filename = "/home/zhoujin/vecDB_publi_data/msmacro_subset_100q_95kp/qrels.tsv";
 
     cnpy::NpyArray docembs_npy = cnpy::npy_load(docembs_filename);
     cnpy::NpyArray doclens_npy = cnpy::npy_load(doclens_filename);
