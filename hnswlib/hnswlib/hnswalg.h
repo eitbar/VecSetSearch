@@ -450,13 +450,14 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         }
 
         visited_list_pool_->releaseVisitedList(vl);
+        // std::cout << top_candidates.size() << std::endl;
         return top_candidates;
     }
 
     const int thread_num = 4;
     const int local_rounds = 30;
 
-    inline void update_top_candidate_para(std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_cand, std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> &top_local){
+    inline void update_top_candidate_para(std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_cand, std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> &top_local, size_t ef){
         std::set<int> seen;
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> min_heap;
         while(!top_cand.empty()){
@@ -477,13 +478,13 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
         }
 
-        while(!min_heap.empty() && top_cand.size() < ef_){
+        while(!min_heap.empty() && top_cand.size() < ef){
             top_cand.emplace(-min_heap.top().first, min_heap.top().second);
             min_heap.pop();
         }
     }
 
-    inline void update_candidate_set_para(std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &cand_total, std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> &cand_local, bool delete_tail, dist_t lowerbound){
+    inline void update_candidate_set_para(std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &cand_total, std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> &cand_local, bool delete_tail, dist_t lowerbound, size_t ef){
         std::set<int> seen;
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> max_heap;
         // std::cout << cand_total.size() << std::endl;
@@ -513,11 +514,11 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         // }
 
         // std::cout << max_heap.top().first << " " << max_heap.size() << " " << lowerbound << std::endl;
-        while(!max_heap.empty() && max_heap.size() > ef_){
+        while(!max_heap.empty() && max_heap.size() > ef){
             max_heap.pop();
         }
         
-        while(!max_heap.empty() && cand_total.size() < ef_){
+        while(!max_heap.empty() && cand_total.size() < ef){
             // std::cout << max_heap.top().first << " " << lowerbound << std::endl;
             if(delete_tail && max_heap.top().first >= lowerbound) {
                 max_heap.pop();
@@ -641,20 +642,21 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 }
             }
             
-            update_top_candidate_para(top_candidates, local_result);
+            update_top_candidate_para(top_candidates, local_result, ef);
 
             lowerBound = top_candidates.top().first;
 
             bool delete_tail = false;
-            if(top_candidates.size() >= ef_)
+            if(top_candidates.size() >= ef)
                 delete_tail = true;
             // std::cout<<candidate_set.size()<<std::endl;
-            update_candidate_set_para(candidate_set, candidate_local, delete_tail, lowerBound);
+            update_candidate_set_para(candidate_set, candidate_local, delete_tail, lowerBound, ef);
             // std::cout<<candidate_set.size()<<std::endl;
             
         }
 
         visited_list_pool_->releaseVisitedList(vl);
+        // std::cout<< top_candidates.size() << std::endl;
         return top_candidates;
     }
 
