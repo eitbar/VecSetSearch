@@ -638,7 +638,7 @@ static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
         std::mt19937 gen(rd()); // 使用 mt19937 引擎
         std::shuffle(random_sequence_p.begin(), random_sequence_p.end(), gen);
         std::shuffle(random_sequence_q.begin(), random_sequence_q.end(), gen);
-
+        std::vector<std::vector<float>> dist_matrix(q_vecnum, std::vector<float>(p_vecnum));
         //#pragma omp parallel for num_threads(4) reduction(+:sum1)
         #pragma omp simd reduction(+:sum1)
         for (size_t i = 0; i < q_vecnum; ++i) {
@@ -647,6 +647,7 @@ static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
             for (size_t j = 0; j < p_vecnum; ++j) {
                 const float* vec_p = p->data + random_sequence_p[j] * p->dim;
                 float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+                dist_matrix[i][j] = dist;
                 maxDist = std::min(maxDist, dist);
             }
             sum1 += maxDist;
@@ -656,17 +657,15 @@ static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
         //#pragma omp parallel for num_threads(4) reduction(+:sum2)
         #pragma omp simd reduction(+:sum2)
         for (size_t i = 0; i < p_vecnum; ++i) {
-            const float* vec_p = p->data + random_sequence_p[i] * p->dim;
             float maxDist = 99999.9f;
             for (size_t j = 0; j < q_vecnum; ++j) {
-                const float* vec_q = q->data + random_sequence_q[j] * q->dim;
-                float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
+                float dist = dist_matrix[j][i];
                 maxDist = std::min(maxDist, dist);
             }
             sum2 += maxDist;
         }
     } else {
-
+        std::vector<std::vector<float>> dist_matrix(q_vecnum, std::vector<float>(p_vecnum));
         //#pragma omp parallel for num_threads(4) reduction(+:sum1)
         #pragma omp simd reduction(+:sum1)
         for (size_t i = 0; i < q_vecnum; ++i) {
@@ -675,6 +674,7 @@ static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
             for (size_t j = 0; j < p_vecnum; ++j) {
                 const float* vec_p = p->data + j * p->dim;
                 float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+                dist_matrix[i][j] = dist;
                 maxDist = std::min(maxDist, dist);
             }
             sum1 += maxDist;
@@ -684,11 +684,9 @@ static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
         //#pragma omp parallel for num_threads(4) reduction(+:sum2)
         #pragma omp simd reduction(+:sum2)
         for (size_t i = 0; i < p_vecnum; ++i) {
-            const float* vec_p = p->data + i * p->dim;
             float maxDist = 99999.9f;
             for (size_t j = 0; j < q_vecnum; ++j) {
-                const float* vec_q = q->data + j * q->dim;
-                float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
+                float dist = dist_matrix[j][i];
                 maxDist = std::min(maxDist, dist);
             }
             sum2 += maxDist;
@@ -721,7 +719,7 @@ static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int leve
         std::random_device rd;  // 随机设备（种子）
         std::mt19937 gen(rd()); // 使用 mt19937 引擎
         std::shuffle(random_sequence_p.begin(), random_sequence_p.end(), gen);
-
+        std::vector<std::vector<float>> dist_matrix(q->vecnum, std::vector<float>(p_vecnum));
         //#pragma omp parallel for num_threads(4) reduction(+:sum1)
         #pragma omp simd reduction(+:sum1)
         for (size_t i = 0; i < q->vecnum; ++i) {
@@ -730,6 +728,7 @@ static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int leve
             for (size_t j = 0; j < p_vecnum; ++j) {
                 const float* vec_p = p->data + random_sequence_p[j] * p->dim;
                 float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+                dist_matrix[i][j] = dist;
                 maxDist = std::min(maxDist, dist);
             }
             sum1 += maxDist;
@@ -738,17 +737,15 @@ static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int leve
         //#pragma omp parallel for num_threads(4) reduction(+:sum2)
         #pragma omp simd reduction(+:sum2)
         for (size_t i = 0; i < p_vecnum; ++i) {
-            const float* vec_p = p->data + random_sequence_p[i] * p->dim;
             float maxDist = 99999.9f;
             for (size_t j = 0; j < q->vecnum; ++j) {
-                const float* vec_q = q->data + j * q->dim;
-                float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
+                float dist = dist_matrix[j][i];
                 maxDist = std::min(maxDist, dist);
             }
             sum2 += maxDist;
         }
     } else {
-
+        std::vector<std::vector<float>> dist_matrix(q->vecnum, std::vector<float>(p_vecnum));
         //#pragma omp parallel for num_threads(4) reduction(+:sum1)
         #pragma omp simd reduction(+:sum1)
         for (size_t i = 0; i < q->vecnum; ++i) {
@@ -757,6 +754,7 @@ static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int leve
             for (size_t j = 0; j < p_vecnum; ++j) {
                 const float* vec_p = p->data + j * p->dim;
                 float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+                dist_matrix[i][j] = dist;
                 maxDist = std::min(maxDist, dist);
             }
             sum1 += maxDist;
@@ -765,11 +763,9 @@ static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int leve
         //#pragma omp parallel for num_threads(4) reduction(+:sum2)
         #pragma omp simd reduction(+:sum2)
         for (size_t i = 0; i < p_vecnum; ++i) {
-            const float* vec_p = p->data + i * p->dim;
             float maxDist = 99999.9f;
             for (size_t j = 0; j < q->vecnum; ++j) {
-                const float* vec_q = q->data + j * q->dim;
-                float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
+                float dist = dist_matrix[j][i];
                 maxDist = std::min(maxDist, dist);
             }
             sum2 += maxDist;
