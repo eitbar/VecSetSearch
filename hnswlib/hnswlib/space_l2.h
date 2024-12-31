@@ -516,6 +516,101 @@ static int L2SqrI(const void* __restrict pVect1, const void* __restrict pVect2, 
 // }
 
 // new bi SumMax L2
+// static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
+//     float sum1 = 0.0f;
+//     float sum2 = 0.0f;
+//     // level = 0;
+//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
+//     #if defined(USE_AVX512)
+//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+//     #elif defined(USE_AVX)
+//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+//     #else 
+//     L2Sqrfunc_ = L2Sqr;
+//     #endif
+
+//     // 根据 level 参数选择不同数量的向量进行计算，并确保至少为 1
+//     size_t q_vecnum = std::max(static_cast<size_t>(1), q->vecnum / (1 << level));
+//     size_t p_vecnum = std::max(static_cast<size_t>(1), p->vecnum / (1 << level));
+
+//     //#pragma omp parallel for num_threads(4) reduction(+:sum1)
+//     #pragma omp simd reduction(+:sum1)
+//     for (size_t i = 0; i < q_vecnum; ++i) {
+//         const float* vec_q = q->data + i * (level + 1) * q->dim;
+//         float maxDist = 99999.9f;
+//         for (size_t j = 0; j < p_vecnum; ++j) {
+//             const float* vec_p = p->data + j * p->dim;
+//             float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+//             maxDist = std::min(maxDist, dist);
+//         }
+//         sum1 += maxDist;
+//     }
+
+
+//     //#pragma omp parallel for num_threads(4) reduction(+:sum2)
+//     #pragma omp simd reduction(+:sum2)
+//     for (size_t i = 0; i < p_vecnum; ++i) {
+//         const float* vec_p = p->data + i * p->dim;
+//         float maxDist = 99999.9f;
+//         for (size_t j = 0; j < q_vecnum; ++j) {
+//             const float* vec_q = q->data + j * q->dim;
+//             float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
+//             maxDist = std::min(maxDist, dist);
+//         }
+//         sum2 += maxDist;
+//     }
+
+//     return sum1 / q_vecnum + sum2 / p_vecnum;
+// }
+
+
+// static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int level) {
+//     float sum1 = 0.0f;
+//     float sum2 = 0.0f;
+//     // level = 0;
+//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
+//     #if defined(USE_AVX512)
+//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+//     #elif defined(USE_AVX)
+//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+//     #else 
+//     L2Sqrfunc_ = L2Sqr;
+//     #endif
+
+//     // 根据 level 参数选择不同数量的向量进行计算，并确保至少为 1
+//     size_t p_vecnum = std::max(static_cast<size_t>(1), p->vecnum / (1 << level));
+
+//     //#pragma omp parallel for num_threads(4) reduction(+:sum1)
+//     #pragma omp simd reduction(+:sum1)
+//     for (size_t i = 0; i < q->vecnum; ++i) {
+//         const float* vec_q = q->data + i * q->dim;
+//         float maxDist = 99999.9f;
+//         for (size_t j = 0; j < p_vecnum; ++j) {
+//             const float* vec_p = p->data + j * p->dim;
+//             float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+//             maxDist = std::min(maxDist, dist);
+//         }
+//         sum1 += maxDist;
+//     }
+
+//     //#pragma omp parallel for num_threads(4) reduction(+:sum2)
+//     #pragma omp simd reduction(+:sum2)
+//     for (size_t i = 0; i < p_vecnum; ++i) {
+//         const float* vec_p = p->data + i * p->dim;
+//         float maxDist = 99999.9f;
+//         for (size_t j = 0; j < q->vecnum; ++j) {
+//             const float* vec_q = q->data + j * q->dim;
+//             float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
+//             maxDist = std::min(maxDist, dist);
+//         }
+//         sum2 += maxDist;
+//     }
+
+//     return sum1 / q->vecnum + sum2 /  p_vecnum;
+// }
+
+// random 版本
+
 static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
     float sum1 = 0.0f;
     float sum2 = 0.0f;
@@ -528,41 +623,79 @@ static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
     #else 
     L2Sqrfunc_ = L2Sqr;
     #endif
-
-    // 根据 level 参数选择不同数量的向量进行计算，并确保至少为 1
     size_t q_vecnum = std::max(static_cast<size_t>(1), q->vecnum / (1 << level));
     size_t p_vecnum = std::max(static_cast<size_t>(1), p->vecnum / (1 << level));
-
-    //#pragma omp parallel for num_threads(4) reduction(+:sum1)
-    #pragma omp simd reduction(+:sum1)
-    for (size_t i = 0; i < q_vecnum; ++i) {
-        const float* vec_q = q->data + i * (level + 1) * q->dim;
-        float maxDist = 99999.9f;
-        for (size_t j = 0; j < p_vecnum; ++j) {
-            const float* vec_p = p->data + j * p->dim;
-            float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
-            maxDist = std::min(maxDist, dist);
+    // 使用随机数引擎打乱序列
+    if (level != 0) { 
+        std::vector<int> random_sequence_p, random_sequence_q;
+        for (int i = 0; i < p->vecnum; ++i) {
+            random_sequence_p.push_back(i); // 初始化为 1 到 n
         }
-        sum1 += maxDist;
-    }
+        for (int i = 0; i < q->vecnum; ++i) {
+            random_sequence_q.push_back(i); // 初始化为 1 到 n
+        }        
+        std::random_device rd;  // 随机设备（种子）
+        std::mt19937 gen(rd()); // 使用 mt19937 引擎
+        std::shuffle(random_sequence_p.begin(), random_sequence_p.end(), gen);
+        std::shuffle(random_sequence_q.begin(), random_sequence_q.end(), gen);
 
-
-    //#pragma omp parallel for num_threads(4) reduction(+:sum2)
-    #pragma omp simd reduction(+:sum2)
-    for (size_t i = 0; i < p_vecnum; ++i) {
-        const float* vec_p = p->data + i * p->dim;
-        float maxDist = 99999.9f;
-        for (size_t j = 0; j < q_vecnum; ++j) {
-            const float* vec_q = q->data + j * q->dim;
-            float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
-            maxDist = std::min(maxDist, dist);
+        //#pragma omp parallel for num_threads(4) reduction(+:sum1)
+        #pragma omp simd reduction(+:sum1)
+        for (size_t i = 0; i < q_vecnum; ++i) {
+            const float* vec_q = q->data + random_sequence_q[i] * q->dim;
+            float maxDist = 99999.9f;
+            for (size_t j = 0; j < p_vecnum; ++j) {
+                const float* vec_p = p->data + random_sequence_p[j] * p->dim;
+                float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+                maxDist = std::min(maxDist, dist);
+            }
+            sum1 += maxDist;
         }
-        sum2 += maxDist;
-    }
 
+
+        //#pragma omp parallel for num_threads(4) reduction(+:sum2)
+        #pragma omp simd reduction(+:sum2)
+        for (size_t i = 0; i < p_vecnum; ++i) {
+            const float* vec_p = p->data + random_sequence_p[i] * p->dim;
+            float maxDist = 99999.9f;
+            for (size_t j = 0; j < q_vecnum; ++j) {
+                const float* vec_q = q->data + random_sequence_q[j] * q->dim;
+                float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
+                maxDist = std::min(maxDist, dist);
+            }
+            sum2 += maxDist;
+        }
+    } else {
+
+        //#pragma omp parallel for num_threads(4) reduction(+:sum1)
+        #pragma omp simd reduction(+:sum1)
+        for (size_t i = 0; i < q_vecnum; ++i) {
+            const float* vec_q = q->data + i * (level + 1) * q->dim;
+            float maxDist = 99999.9f;
+            for (size_t j = 0; j < p_vecnum; ++j) {
+                const float* vec_p = p->data + j * p->dim;
+                float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+                maxDist = std::min(maxDist, dist);
+            }
+            sum1 += maxDist;
+        }
+
+
+        //#pragma omp parallel for num_threads(4) reduction(+:sum2)
+        #pragma omp simd reduction(+:sum2)
+        for (size_t i = 0; i < p_vecnum; ++i) {
+            const float* vec_p = p->data + i * p->dim;
+            float maxDist = 99999.9f;
+            for (size_t j = 0; j < q_vecnum; ++j) {
+                const float* vec_q = q->data + j * q->dim;
+                float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
+                maxDist = std::min(maxDist, dist);
+            }
+            sum2 += maxDist;
+        }        
+    }
     return sum1 / q_vecnum + sum2 / p_vecnum;
 }
-
 
 static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int level) {
     float sum1 = 0.0f;
@@ -577,33 +710,70 @@ static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int leve
     L2Sqrfunc_ = L2Sqr;
     #endif
 
-    // 根据 level 参数选择不同数量的向量进行计算，并确保至少为 1
     size_t p_vecnum = std::max(static_cast<size_t>(1), p->vecnum / (1 << level));
 
-    //#pragma omp parallel for num_threads(4) reduction(+:sum1)
-    #pragma omp simd reduction(+:sum1)
-    for (size_t i = 0; i < q->vecnum; ++i) {
-        const float* vec_q = q->data + i * q->dim;
-        float maxDist = 99999.9f;
-        for (size_t j = 0; j < p_vecnum; ++j) {
-            const float* vec_p = p->data + j * p->dim;
-            float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
-            maxDist = std::min(maxDist, dist);
+    if (level != 0) {
+        std::vector<int> random_sequence_p;
+        for (int i = 0; i < p->vecnum; ++i) {
+            random_sequence_p.push_back(i); // 初始化为 1 到 n
         }
-        sum1 += maxDist;
-    }
+        // 使用随机数引擎打乱序列
+        std::random_device rd;  // 随机设备（种子）
+        std::mt19937 gen(rd()); // 使用 mt19937 引擎
+        std::shuffle(random_sequence_p.begin(), random_sequence_p.end(), gen);
 
-    //#pragma omp parallel for num_threads(4) reduction(+:sum2)
-    #pragma omp simd reduction(+:sum2)
-    for (size_t i = 0; i < p_vecnum; ++i) {
-        const float* vec_p = p->data + i * p->dim;
-        float maxDist = 99999.9f;
-        for (size_t j = 0; j < q->vecnum; ++j) {
-            const float* vec_q = q->data + j * q->dim;
-            float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
-            maxDist = std::min(maxDist, dist);
+        //#pragma omp parallel for num_threads(4) reduction(+:sum1)
+        #pragma omp simd reduction(+:sum1)
+        for (size_t i = 0; i < q->vecnum; ++i) {
+            const float* vec_q = q->data + i * q->dim;
+            float maxDist = 99999.9f;
+            for (size_t j = 0; j < p_vecnum; ++j) {
+                const float* vec_p = p->data + random_sequence_p[j] * p->dim;
+                float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+                maxDist = std::min(maxDist, dist);
+            }
+            sum1 += maxDist;
         }
-        sum2 += maxDist;
+
+        //#pragma omp parallel for num_threads(4) reduction(+:sum2)
+        #pragma omp simd reduction(+:sum2)
+        for (size_t i = 0; i < p_vecnum; ++i) {
+            const float* vec_p = p->data + random_sequence_p[i] * p->dim;
+            float maxDist = 99999.9f;
+            for (size_t j = 0; j < q->vecnum; ++j) {
+                const float* vec_q = q->data + j * q->dim;
+                float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
+                maxDist = std::min(maxDist, dist);
+            }
+            sum2 += maxDist;
+        }
+    } else {
+
+        //#pragma omp parallel for num_threads(4) reduction(+:sum1)
+        #pragma omp simd reduction(+:sum1)
+        for (size_t i = 0; i < q->vecnum; ++i) {
+            const float* vec_q = q->data + i * q->dim;
+            float maxDist = 99999.9f;
+            for (size_t j = 0; j < p_vecnum; ++j) {
+                const float* vec_p = p->data + j * p->dim;
+                float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+                maxDist = std::min(maxDist, dist);
+            }
+            sum1 += maxDist;
+        }
+
+        //#pragma omp parallel for num_threads(4) reduction(+:sum2)
+        #pragma omp simd reduction(+:sum2)
+        for (size_t i = 0; i < p_vecnum; ++i) {
+            const float* vec_p = p->data + i * p->dim;
+            float maxDist = 99999.9f;
+            for (size_t j = 0; j < q->vecnum; ++j) {
+                const float* vec_q = q->data + j * q->dim;
+                float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
+                maxDist = std::min(maxDist, dist);
+            }
+            sum2 += maxDist;
+        }
     }
 
     return sum1 / q->vecnum + sum2 /  p_vecnum;
