@@ -35,6 +35,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     int maxlevel_{0};
     int maxLevel_ty=3;
 
+    const int multi_entry_thread_num = 80;
+    const int inner_search_thread_num = 2;
+    const int local_rounds = 30;
+
     std::unique_ptr<VisitedListPool> visited_list_pool_{nullptr};
 
     // Locks operations with element by label value
@@ -529,9 +533,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return top_candidates;
     }
 
-    const int multi_entry_thread_num = 80;
-    const int inner_search_thread_num = 2;
-    const int local_rounds = 30;
 
     inline void update_top_candidate_para(std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_cand, std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> &top_local, size_t ef){
         std::set<int> seen;
@@ -1946,7 +1947,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 }
             }
         }
-
+        // std::cout << "? ? ? ?" << std::endl;
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
         std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> top_candidate_local(multi_entry_thread_num);
         //bool bare_bone_search = !num_deleted_ && !isIdAllowed;
@@ -1958,16 +1959,18 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         //             currObj, query_data, std::max(ef_, k), isIdAllowed);
         // }
 
-
+        // std::cout << "? ? ? ?" << std::endl;
         std::vector<tableint> obj_list(multi_entry_thread_num);
-        
+        // std::cout << "? ? ? ?" << std::endl;
         obj_list[0] = currObj;
-
+        // std::cout << entry_points.size() << std::endl;
+        
         for(int i = 1; i < multi_entry_thread_num; i++){
             // obj_list[i] = rand() % cur_element_count;
             if (i <= entry_points.size()) {
                 std::unique_lock <std::mutex> lock_table(label_lookup_lock);
-                // std::cout << " " << entry_points[i - 1];
+                // std::cout << i << std::endl;
+                // std::cout << " " << entry_points[i - 1] << std::endl;
                 auto search = label_lookup_.find(entry_points[i - 1]);
                 obj_list[i] = search->second;
             } else {
@@ -1981,7 +1984,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         // for(int i = 0; i < thread_num; i++)
         {
             int i = omp_get_thread_num();
-            // std::cout<<i<<std::endl;
+            // std::cout << i << std::endl;
             top_candidate_local[i] = searchBaseLayerSTPara<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
             // top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
             while (top_candidate_local[i].size() > k) 

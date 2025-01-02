@@ -15,7 +15,7 @@
 constexpr int VECTOR_DIM = 128;
 constexpr int BASE_VECTOR_SET_MIN = 36;
 constexpr int BASE_VECTOR_SET_MAX = 48;
-constexpr int MSMACRO_TEST_NUMBER = 1;
+constexpr int MSMACRO_TEST_NUMBER = 354;
 constexpr int NUM_BASE_SETS = 25000 * MSMACRO_TEST_NUMBER;
 constexpr int NUM_QUERY_SETS = 100;
 constexpr int QUERY_VECTOR_COUNT = 32;
@@ -429,8 +429,9 @@ void readGroundTruth(const std::string& ground_truth_file, std::vector<std::vect
 
 std::vector<int> generateEntriesIndex(int multi_entries_num, int n) {
     std::vector<int> numbers;
-    for (int i = 0; i < n; ++i) {
-        numbers.push_back(i);
+    numbers.resize(n - 50);
+    for (int i = 50; i < n; ++i) {
+        numbers[i - 50] = i;
     }
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -490,6 +491,32 @@ double calculate_recall(const std::vector<std::pair<int, float>>& solution_indic
     return recall;
 }
 
+double calculate_entry_recall(const std::vector<hnswlib::labeltype>& solution_indices,
+                        const std::vector<std::pair<int, float>>& ground_truth_indices,
+                        int topk = 100) {
+    std::unordered_set<int> solution_set;
+    std::unordered_set<int> ground_truth_set;
+    for (const auto& ind : solution_indices) {
+        solution_set.insert(ind);
+    }
+    for (const auto& pair : ground_truth_indices) {
+        ground_truth_set.insert(pair.first);
+        if (ground_truth_set.size() >= topk) {
+            break;
+        }
+    }
+    int intersection_count = 0;
+    for (const int& index : solution_set) {
+        if (ground_truth_set.find(index) != ground_truth_set.end()) {
+            intersection_count++;
+        }
+    }
+
+    double recall = static_cast<double>(intersection_count) / ground_truth_set.size();
+    return recall;
+}
+
+
 int main() {
     omp_set_nested(1);
 
@@ -500,11 +527,13 @@ int main() {
     std::vector<vectorset> query;
     std::vector<std::vector<int>> qrels;
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth;
-    bool test_subset = true;
-    bool load_bf_from_cache = true;
+    bool test_subset = false;
+    bool load_bf_from_cache = false;
     int dist_metric = 2;
-    int multi_entries_num = 100;
-    int multi_entries_range = 500;
+    int multi_entries_num = 80;
+    int multi_entries_range = 100;
+    std::mt19937 gen(42);                    // 使用Mersenne Twister引擎
+    std::uniform_int_distribution<int> dist(1, std::numeric_limits<int>::max());
     std::string ground_truth_file;
     if (dist_metric == 0) {
         if (test_subset) {
@@ -523,7 +552,7 @@ int main() {
             ground_truth_file = "../examples/caches/95k_ground_truth_new_summax_l2_top100.txt";
         } else {
             ground_truth_file = "../examples/caches/ground_truth_new_summax_l2_top100.txt";
-        }        
+        }
     }
     
     if (test_subset) {
@@ -542,21 +571,26 @@ int main() {
         GroundTruth ground_truth;
         ground_truth.build(VECTOR_DIM, base);
         std::cout<< "Generate BF Groundtruth" <<std::endl;
-
+        #pragma omp parallel for schedule(dynamic)
+        for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+            // std::vector<std::pair<int, float>> ground_truth_indices;
+            ground_truth.search(query[i], K, bf_ground_truth[i]);
+            std::cout << i << std::endl;
+        }
+        std::cout<< "Generate BF Groundtruth Finish!" <<std::endl;
         std::ofstream outFile(ground_truth_file);
         for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-            std::vector<std::pair<int, float>> ground_truth_indices;
-            ground_truth.search(query[i], K, ground_truth_indices);
             for (int j = 0; j < K; j++) {
-                outFile << ground_truth_indices[j].first << " " << ground_truth_indices[j].second << " ";
+                outFile << bf_ground_truth[i][j].first << " " << bf_ground_truth[i][j].second << " ";
             }
             outFile << "\n";
             outFile.flush();
         }
-        std::cout<< "Generate BF Groundtruth Finish!" <<std::endl;
+        std::cout<< "write file BF Groundtruth Finish!" <<std::endl;
     }
-
-    readGroundTruth(ground_truth_file, bf_ground_truth);
+    else {
+        readGroundTruth(ground_truth_file, bf_ground_truth);
+    }
 
     Solution solution;
     solution.build(VECTOR_DIM, base);
@@ -564,6 +598,11 @@ int main() {
     double total_dataset_hnsw_recall = 0.0;
     double total_dataset_bf_recall = 0.0;
     double total_query_time = 0.0;
+    double total_enrty_recall_10 = 0.0;
+    double total_enrty_recall_30 = 0.0;
+    double total_enrty_recall_50 = 0.0;
+    double total_enrty_recall_100 = 0.0;
+
 
     std::cout<<"Processing Queries HNSW"<<std::endl;
     // #pragma omp parallel for schedule(dynamic)
@@ -571,16 +610,49 @@ int main() {
         std::vector<std::pair<int, float>> solution_indices;
         std::vector<hnswlib::labeltype> entry_points;
         entry_points.resize(multi_entries_num);
-        std::vector<int> entry_point_index = generateEntriesIndex(multi_entries_num, multi_entries_range);
+        // std::vector<int> entry_point_index = generateEntriesIndex(multi_entries_num, multi_entries_range);
+        // std::unordered_set<int> ground_truth_set;
+        // for (const auto& pair : bf_ground_truth[i]) {
+        //     ground_truth_set.insert(pair.first);
+        //     if (ground_truth_set.size() >= 50) {
+        //         break;
+        //     }
+        // }
+        // for (int j = 0; j < multi_entries_num; j++) {
+        //     entry_points[j] = bf_ground_truth[i][entry_point_index[j]].first;
+        // }
         for (int j = 0; j < multi_entries_num; j++) {
-            // std::cout << " " << bf_ground_truth[i][j].first;
-            entry_points[j] = bf_ground_truth[i][entry_point_index[j]].first;
+            int tmp_ind = dist(gen) % base.size();
+            // while (ground_truth_set.find(tmp_ind) != ground_truth_set.end()) {
+            //     tmp_ind = dist(gen) % base.size();
+            // }
+            entry_points[j] = tmp_ind;
         }
+        // std::cout << bf_ground_truth[i].size() << std::endl;
+        // std::cout<<entry_points.size()<<std::endl;
         // double query_time = solution.search(query[i], K, solution_indices);
         double query_time = solution.searchFromEntries(query[i], K, entry_points, solution_indices);
         total_query_time += query_time;
         double recall = calculate_recall(solution_indices, bf_ground_truth[i]);
         total_recall += recall;
+        double entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 10);
+        total_enrty_recall_10 += entry_recall;
+        // if (entry_recall > 0) {
+        //     for (int j = 0; j < 80;j++) {
+        //         std::cout << entry_points[j] << std::endl;
+        //     }
+        //     std::cout << "===" << std::endl;
+        //     for (int j = 0; j < 10; j++) {
+        //         std::cout << bf_ground_truth[i][j].first << std::endl;
+        //     }
+        //     break;
+        // }
+        entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 30);
+        total_enrty_recall_30 += entry_recall;
+        entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 50);
+        total_enrty_recall_50 += entry_recall;
+        entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 100);
+        total_enrty_recall_100 += entry_recall;
         double dataset_hnsw_recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
         total_dataset_hnsw_recall += dataset_hnsw_recall;
         double dataset_bf_recall = calculate_recall_for_msmacro(bf_ground_truth[i], qrels[i]);
@@ -595,6 +667,7 @@ int main() {
     std::cout << "Average Recall: " << average_recall << std::endl;
     std::cout << "Average Dataset HNSW Recall: " << average_dataset_hnsw_recall << std::endl;
     std::cout << "Average Dataset BF Recall: " << average_dataset_bf_recall << std::endl;
+    std::cout << "Average entry recall: " << total_enrty_recall_10/NUM_QUERY_SETS << " " << total_enrty_recall_30/NUM_QUERY_SETS << " " << total_enrty_recall_50/NUM_QUERY_SETS << " " << total_enrty_recall_100/NUM_QUERY_SETS << std::endl;
     std::cout << "Average query time: " << total_query_time/NUM_QUERY_SETS << " seconds" << std::endl;
 
     return 0;
