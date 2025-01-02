@@ -289,8 +289,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         //     while (top_candidate_local[i].size() > k) 
         //         top_candidate_local[i].pop();
         // } 
-
-        top_candidates = getMinKUnique(top_candidate_local, ef_construction_);
+        top_candidates = top_candidate_local[0];
+        // top_candidates = getMinKUnique(top_candidate_local, ef_construction_);
         while (top_candidates.size() > ef_construction_) {
             top_candidates.pop();
         }
@@ -529,7 +529,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return top_candidates;
     }
 
-    const int thread_num = 4;
+    const int multi_entry_thread_num = 80;
+    const int inner_search_thread_num = 2;
     const int local_rounds = 30;
 
     inline void update_top_candidate_para(std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_cand, std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> &top_local, size_t ef){
@@ -641,8 +642,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
         visited_array[ep_id] = visited_array_tag;
 
-        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> candidate_local(thread_num);
-        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> local_result(thread_num);
+        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> candidate_local(inner_search_thread_num);
+        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> local_result(inner_search_thread_num);
 
         while (!candidate_set.empty()) {
             std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
@@ -666,14 +667,14 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             candidate_local[0].emplace(-candidate_dist, current_node_pair.second);
 
             while(!candidate_set.empty()){
-                for(int i = 0; i < thread_num; i++){
+                for(int i = 0; i < inner_search_thread_num; i++){
                     if(candidate_set.empty()) break;
                     candidate_local[i].emplace(candidate_set.top().first, candidate_set.top().second);
                     candidate_set.pop();
                 }
             }
 
-            #pragma omp parallel num_threads(thread_num)
+            #pragma omp parallel num_threads(inner_search_thread_num)
             // for (int tid = 0; tid < thread_num; tid++)
             {
                 int curr_thread_id = omp_get_thread_num();
@@ -1773,7 +1774,9 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         std::vector<std::pair<dist_t, labeltype>> allElements;
         for (auto &h : heaps) {
             while (!h.empty()) {
-                // std::cout << "hello: " << getExternalLabel(h.top().second) << " " << h.top().first << std::endl;
+                // if (h.size() == 1) {
+                //     std::cout << "hello: " << getExternalLabel(h.top().second) << " " << h.top().first << std::endl;
+                // }
                 allElements.push_back(h.top());
                 h.pop();
             }
@@ -1857,7 +1860,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         }
 
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> top_candidate_local(thread_num);
+        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> top_candidate_local(multi_entry_thread_num);
         //bool bare_bone_search = !num_deleted_ && !isIdAllowed;
         // if (bare_bone_search) {
         //     top_candidates = searchBaseLayerST<true>(
@@ -1866,17 +1869,17 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         //     top_candidates = searchBaseLayerST<false>(
         //             currObj, query_data, std::max(ef_, k), isIdAllowed);
         // }
-        std::vector<tableint> obj_list(thread_num);
+        std::vector<tableint> obj_list(multi_entry_thread_num);
         
         obj_list[0] = currObj;
 
-        for(int i = 1; i < thread_num; i++){
+        for(int i = 1; i < multi_entry_thread_num; i++){
             obj_list[i] = rand() % cur_element_count;
         }
         // for(int i = 0; i < thread_num; i++)
         // #pragma omp parallel num_threads(thread_num) schedule(dynamic)
         #pragma omp parallel for schedule(dynamic)
-        for(int i = 0; i < thread_num; i++)
+        for(int i = 0; i < multi_entry_thread_num; i++)
         {
             // int i = omp_get_thread_num();
             top_candidate_local[i] = searchBaseLayerSTPara<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
@@ -1945,7 +1948,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         }
 
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> top_candidate_local(thread_num);
+        std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> top_candidate_local(multi_entry_thread_num);
         //bool bare_bone_search = !num_deleted_ && !isIdAllowed;
         // if (bare_bone_search) {
         //     top_candidates = searchBaseLayerST<true>(
@@ -1956,11 +1959,11 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         // }
 
 
-        std::vector<tableint> obj_list(thread_num);
+        std::vector<tableint> obj_list(multi_entry_thread_num);
         
         obj_list[0] = currObj;
 
-        for(int i = 1; i < thread_num; i++){
+        for(int i = 1; i < multi_entry_thread_num; i++){
             // obj_list[i] = rand() % cur_element_count;
             if (i <= entry_points.size()) {
                 std::unique_lock <std::mutex> lock_table(label_lookup_lock);
@@ -1974,7 +1977,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         // std::cout << std::endl;
         // #pragma omp parallel num_threads(thread_num)
         // #pragma omp parallel for schedule(dynamic)
-        #pragma omp parallel num_threads(thread_num)
+        #pragma omp parallel num_threads(multi_entry_thread_num)
         // for(int i = 0; i < thread_num; i++)
         {
             int i = omp_get_thread_num();

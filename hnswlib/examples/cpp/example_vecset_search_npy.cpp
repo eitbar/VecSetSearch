@@ -429,7 +429,7 @@ void readGroundTruth(const std::string& ground_truth_file, std::vector<std::vect
 
 std::vector<int> generateEntriesIndex(int multi_entries_num, int n) {
     std::vector<int> numbers;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < n; ++i) {
         numbers.push_back(i);
     }
     std::random_device rd;
@@ -445,6 +445,9 @@ double calculate_recall_for_msmacro(const std::vector<std::pair<int, float>>& so
     std::unordered_set<int> ground_truth_set;
     for (const auto& pair : solution_indices) {
         solution_set.insert(pair.first);
+        if (solution_set.size() >= K) {
+            break;
+        }
     }
     for (const auto& pid : ground_truth_indices) {
         ground_truth_set.insert(pid);
@@ -466,9 +469,15 @@ double calculate_recall(const std::vector<std::pair<int, float>>& solution_indic
     std::unordered_set<int> ground_truth_set;
     for (const auto& pair : solution_indices) {
         solution_set.insert(pair.first);
+        if (solution_set.size() >= K) {
+            break;
+        }
     }
     for (const auto& pair : ground_truth_indices) {
         ground_truth_set.insert(pair.first);
+        if (ground_truth_set.size() >= K) {
+            break;
+        }
     }
     int intersection_count = 0;
     for (const int& index : solution_set) {
@@ -494,8 +503,8 @@ int main() {
     bool test_subset = true;
     bool load_bf_from_cache = true;
     int dist_metric = 2;
-    int multi_entries_num = 3;
-    int multi_entries_range = 50;
+    int multi_entries_num = 100;
+    int multi_entries_range = 500;
     std::string ground_truth_file;
     if (dist_metric == 0) {
         if (test_subset) {
@@ -564,7 +573,8 @@ int main() {
         entry_points.resize(multi_entries_num);
         std::vector<int> entry_point_index = generateEntriesIndex(multi_entries_num, multi_entries_range);
         for (int j = 0; j < multi_entries_num; j++) {
-            entry_points.push_back(bf_ground_truth[i][entry_point_index[j]].first);
+            // std::cout << " " << bf_ground_truth[i][j].first;
+            entry_points[j] = bf_ground_truth[i][entry_point_index[j]].first;
         }
         // double query_time = solution.search(query[i], K, solution_indices);
         double query_time = solution.searchFromEntries(query[i], K, entry_points, solution_indices);
