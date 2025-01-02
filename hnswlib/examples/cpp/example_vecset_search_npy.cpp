@@ -29,13 +29,16 @@ public:
     }
 
     void search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
-        res.clear();
+        // res.clear();
         std::vector<std::pair<float, int>> distances;
 
         // Calculate Chamfer distance between query set and each base set
         //std::cout<<"Calc Dis"<<std::endl;
         int base_offset = 0;
         for (size_t i = 0; i < base_vectors.size(); ++i) {
+            if (i % 1000000 == 0) {
+                std::cout << "calc distance for " << i << std::endl;
+            }
             float chamfer_dist = hnswlib::L2SqrVecSet(&query, &base_vectors[i], 0);
             distances.push_back({chamfer_dist, static_cast<int>(i)});
         }
@@ -43,7 +46,7 @@ public:
         // Sort distances to find top-k nearest neighbors
         std::partial_sort(distances.begin(), distances.begin() + k, distances.end());
         for (int i = 0; i < k; ++i) {
-            res.push_back(std::make_pair(distances[i].second, distances[i].first));
+            res[i] = std::make_pair(distances[i].second, distances[i].first);
         }
         
     }
@@ -411,17 +414,18 @@ void readGroundTruth(const std::string& ground_truth_file, std::vector<std::vect
     }
 
     std::string line;
+    int i = 0;
     while (std::getline(inFile, line)) {
         std::vector<std::pair<int, float>> query_results;
         std::istringstream line_stream(line);
-
         int index;
         float distance;
+        int j = 0;
         while (line_stream >> index >> distance) {
-            query_results.emplace_back(index, distance);
+            ground_truth_indices[i][j] = std::make_pair(index, distance); 
+            j+=1;
         }
-        
-        ground_truth_indices.push_back(query_results);
+        i+=1;
     }
 
     inFile.close();
@@ -468,25 +472,44 @@ double calculate_recall(const std::vector<std::pair<int, float>>& solution_indic
                         const std::vector<std::pair<int, float>>& ground_truth_indices) {
     std::unordered_set<int> solution_set;
     std::unordered_set<int> ground_truth_set;
+    // for (int j = 0; j < K; j ++) {
+    //     std::cout << ground_truth_indices[j].first << " " << ground_truth_indices[j].second << " ";
+    // }
+    // std::cout << ground_truth_indices.size() << std::endl;
+    
     for (const auto& pair : solution_indices) {
         solution_set.insert(pair.first);
+        // std::cout << pair.first << " ";
         if (solution_set.size() >= K) {
             break;
         }
     }
+    // std::cout << std::endl;
+
     for (const auto& pair : ground_truth_indices) {
         ground_truth_set.insert(pair.first);
+        // std::cout << pair.first << " ";
         if (ground_truth_set.size() >= K) {
             break;
         }
     }
+
+    // for (int j = 0; j < K; j ++) {
+    //     ground_truth_set.insert(ground_truth_indices[j].first);
+    //     // std::cout << ground_truth_indices[j].first << " ";
+    //     if (ground_truth_set.size() >= K) {
+    //         break;
+    //     }
+    // }
+    // std::cout << std::endl;
     int intersection_count = 0;
     for (const int& index : solution_set) {
         if (ground_truth_set.find(index) != ground_truth_set.end()) {
             intersection_count++;
         }
     }
-
+    // std::cout << intersection_count << std::endl;
+    // std::cout << ground_truth_set.size() << std::endl;
     double recall = static_cast<double>(intersection_count) / ground_truth_set.size();
     return recall;
 }
@@ -526,7 +549,9 @@ int main() {
     std::vector<vectorset> base;
     std::vector<vectorset> query;
     std::vector<std::vector<int>> qrels;
-    std::vector<std::vector<std::pair<int, float>>> bf_ground_truth;
+    std::vector<std::vector<std::pair<int, float>>> bf_ground_truth(
+        NUM_QUERY_SETS, std::vector<std::pair<int, float>>(K, {0, 0.0f})
+    );
     bool test_subset = false;
     bool load_bf_from_cache = false;
     int dist_metric = 2;
@@ -574,8 +599,8 @@ int main() {
         #pragma omp parallel for schedule(dynamic)
         for (int i = 0; i < NUM_QUERY_SETS; ++i) {
             // std::vector<std::pair<int, float>> ground_truth_indices;
-            ground_truth.search(query[i], K, bf_ground_truth[i]);
             std::cout << i << std::endl;
+            ground_truth.search(query[i], K, bf_ground_truth[i]);
         }
         std::cout<< "Generate BF Groundtruth Finish!" <<std::endl;
         std::ofstream outFile(ground_truth_file);
@@ -632,6 +657,15 @@ int main() {
         // std::cout<<entry_points.size()<<std::endl;
         // double query_time = solution.search(query[i], K, solution_indices);
         double query_time = solution.searchFromEntries(query[i], K, entry_points, solution_indices);
+        // for (int j = 0; j < K; j ++) {
+        //     std::cout << solution_indices[j].first << " " << solution_indices[j].second << " ";
+        // }
+        // std::cout << std::endl;
+
+        // for (int j = 0; j < K; j ++) {
+        //     std::cout << bf_ground_truth[i][j].first << " " << bf_ground_truth[i][j].second << " ";
+        // }
+        // std::cout << std::endl;        
         total_query_time += query_time;
         double recall = calculate_recall(solution_indices, bf_ground_truth[i]);
         total_recall += recall;
