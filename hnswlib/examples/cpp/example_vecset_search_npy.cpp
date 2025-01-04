@@ -71,6 +71,7 @@ public:
             }
             alg_hnsw->addPoint(&base_vectors[i], i);            
         }
+        alg_hnsw->setEf(200);
         std::cout << "Build time: " << omp_get_wtime() - time << "sec"<<std::endl;
         // Add any necessary pre-computation or indexing for the optimized search
     }
@@ -89,6 +90,7 @@ public:
 
     double searchFromEntries(const vectorset query, int k, std::vector<hnswlib::labeltype>& entry_points, std::vector<std::pair<int, float>>& res) const {
         res.clear();
+        alg_hnsw->setEf(200);
         double start_time = omp_get_wtime();
         std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnParaFromEntries(&query, k, entry_points);
         for(int i = 0; i < k; i++){
@@ -97,6 +99,24 @@ public:
         }
         double end_time = omp_get_wtime();
         return end_time - start_time;
+    }
+
+    void save(const std::string &location) {
+        double time = omp_get_wtime();
+        alg_hnsw->saveIndex(location);
+        std::cout << "save time: " << omp_get_wtime() - time << "sec"<<std::endl;
+    }
+
+    void load(const std::string &location, int d, const std::vector<vectorset>& base) {
+        double time = omp_get_wtime();
+        space_ptr = new hnswlib::L2VSSpace(d);
+        alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 16, 80);
+        alg_hnsw->loadIndex(location, space_ptr);
+        // #pragma omp parallel for schedule(dynamic)
+        for(hnswlib::labeltype i = 0; i < base.size(); i++){
+            alg_hnsw->loadDataAddress(&base[i], i);            
+        }
+        std::cout << "load time: " << omp_get_wtime() - time << "sec"<<std::endl;
     }
 
 private:
@@ -552,31 +572,38 @@ int main() {
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth(
         NUM_QUERY_SETS, std::vector<std::pair<int, float>>(K, {0, 0.0f})
     );
-    bool test_subset = false;
-    bool load_bf_from_cache = false;
+    bool test_subset = true;
+    bool load_bf_from_cache = true;
+    bool rebuild = false;
     int dist_metric = 2;
-    int multi_entries_num = 80;
+    int multi_entries_num = 40;
     int multi_entries_range = 100;
     std::mt19937 gen(42);                    // 使用Mersenne Twister引擎
     std::uniform_int_distribution<int> dist(1, std::numeric_limits<int>::max());
-    std::string ground_truth_file;
+    std::string ground_truth_file, index_file;
     if (dist_metric == 0) {
         if (test_subset) {
             ground_truth_file = "../examples/caches/95k_ground_truth_bi_summax_l2_top100.txt";
+            index_file = "../examples/localIndex/95k_bi_summax_l2.bin";
         } else {
             ground_truth_file = "../examples/caches/ground_truth_bi_summax_l2_top100.txt";
+            index_file = "../examples/localIndex/8m_bi_summax_l2.bin";
         }
     } else if (dist_metric == 1) {
         if (test_subset) {
             ground_truth_file = "../examples/caches/95k_ground_truth_single_summax_l2_top100.txt";
+            index_file = "../examples/localIndex/95k_single_summax_l2.bin";
         } else {
             ground_truth_file = "../examples/caches/ground_truth_single_summax_l2_top100.txt";
+            index_file = "../examples/localIndex/8m_single_summax_l2.bin";
         }
     } else {
         if (test_subset) {
             ground_truth_file = "../examples/caches/95k_ground_truth_new_summax_l2_top100.txt";
+            index_file = "../examples/localIndex/95k_new_summax_l2.bin";
         } else {
             ground_truth_file = "../examples/caches/ground_truth_new_summax_l2_top100.txt";
+            index_file = "../examples/localIndex/8m_new_summax_l2.bin";
         }
     }
     
@@ -618,7 +645,12 @@ int main() {
     }
 
     Solution solution;
-    solution.build(VECTOR_DIM, base);
+    if (rebuild) {
+        solution.build(VECTOR_DIM, base);
+        solution.save(index_file);
+    } else {
+        solution.load(index_file, VECTOR_DIM, base);
+    }
     double total_recall = 0.0;
     double total_dataset_hnsw_recall = 0.0;
     double total_dataset_bf_recall = 0.0;

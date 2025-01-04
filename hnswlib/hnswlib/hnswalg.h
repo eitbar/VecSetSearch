@@ -35,9 +35,9 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     int maxlevel_{0};
     int maxLevel_ty=3;
 
-    const int multi_entry_thread_num = 80;
-    const int inner_search_thread_num = 2;
-    const int local_rounds = 30;
+    const int multi_entry_thread_num = 30;
+    const int inner_search_thread_num = 6;
+    const int local_rounds = 10;
 
     std::unique_ptr<VisitedListPool> visited_list_pool_{nullptr};
 
@@ -1139,6 +1139,21 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     }
 
 
+    void loadDataAddress(const void *data_point , labeltype label) {
+        {
+            // Checking if the element with the same label already exists
+            // if so, updating it *instead* of creating a new element.
+            std::unique_lock <std::mutex> lock_table(label_lookup_lock);
+            auto search = label_lookup_.find(label);
+            if (search != label_lookup_.end()) {
+                tableint existingInternalId = search->second;
+                lock_table.unlock();
+                memcpy(getDataByInternalId(existingInternalId), data_point, data_size_);
+                return ;
+            }
+        }
+    }
+    
     template<typename data_t>
     std::vector<data_t> getDataByLabel(labeltype label) const {
         // lock all operations with element by label
