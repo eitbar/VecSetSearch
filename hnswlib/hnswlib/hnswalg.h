@@ -35,8 +35,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     int maxlevel_{0};
     int maxLevel_ty=3;
 
-    const int multi_entry_thread_num = 30;
-    const int inner_search_thread_num = 6;
+    const int multi_entry_thread_num = 20;
+    const int inner_search_thread_num = 8;
     const int local_rounds = 10;
 
     std::unique_ptr<VisitedListPool> visited_list_pool_{nullptr};
@@ -1153,7 +1153,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
         }
     }
-    
+
     template<typename data_t>
     std::vector<data_t> getDataByLabel(labeltype label) const {
         // lock all operations with element by label
