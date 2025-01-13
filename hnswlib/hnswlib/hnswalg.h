@@ -35,7 +35,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     int maxlevel_{0};
     int maxLevel_ty=3;
 
-    const int multi_entry_thread_num = 20;
+    const int multi_entry_thread_num = 1;
     const int inner_search_thread_num = 8;
     const int local_rounds = 10;
 
@@ -60,6 +60,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
     float (*fstdistfunc_)(const vectorset*, const vectorset*, int level) ;
     float (*fstdistfunc4search_)(const vectorset*, const vectorset*, int level) ;
+    float (*fstdistfuncMap_)(const vectorset* , const vectorset* , const vectorset* , const uint8_t* , const uint8_t* , uint8_t* , int level);
+    float (*fstdistfuncInit_)(const vectorset* , const vectorset* , uint8_t* , int level);
     void *dist_func_param_{nullptr};
 
     mutable std::mutex label_lookup_lock;  // lock for label_lookup_
@@ -108,6 +110,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         //data_size_ = s->get_data_size();
         data_size_ = sizeof(vectorset);
         fstdistfunc_ = L2SqrVecSet;
+        fstdistfuncInit_ = L2SqrVecSetInit;
+        fstdistfuncMap_ = L2SqrVecSetMap;
         fstdistfunc4search_ = L2SqrVecSet4Search;
         dist_func_param_ = s->get_dist_func_param();
         if ( M <= 10000 ) {
@@ -125,7 +129,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         level_generator_.seed(random_seed);
         update_probability_generator_.seed(random_seed + 1);
 
-        size_links_level0_ = maxM0_ * sizeof(tableint) + sizeof(linklistsizeint);
+        size_links_level0_ = maxM0_ * (sizeof(tableint) + 240 * sizeof(uint8_t)) + sizeof(linklistsizeint);
         size_data_per_element_ = size_links_level0_ + data_size_ + sizeof(labeltype);
         offsetData_ = size_links_level0_;
         label_offset_ = size_links_level0_ + data_size_;
@@ -146,7 +150,9 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         linkLists_ = (char **) malloc(sizeof(void *) * max_elements_);
         if (linkLists_ == nullptr)
             throw std::runtime_error("Not enough memory: HierarchicalNSW failed to allocate linklists");
-        size_links_per_element_ = maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
+        // size_links_per_element_ = maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
+        size_links_per_element_ = maxM_ * (sizeof(tableint) + 240 * sizeof(uint8_t)) + sizeof(linklistsizeint);
+        // size_links_level0_ = maxM0_ * (sizeof(tableint) + 240 * sizeof(uint8_t)) + sizeof(linklistsizeint);
         mult_ = 1 / log(1.0 * M_);
         revSize_ = 1.0 / mult_;
     }
@@ -177,6 +183,12 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         }
     };
 
+    struct CompareTupleByFirst {
+        constexpr bool operator()(std::tuple<dist_t, tableint, uint8_t*> const& a,
+            std::tuple<dist_t, tableint, uint8_t*> const& b) const noexcept {
+            return std::get<0>(a) < std::get<0>(b);
+        }
+    };
 
     void setEf(size_t ef) {
         ef_ = ef;
@@ -215,8 +227,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     int getRandomLevel(double reverse_size) {
         std::uniform_real_distribution<double> distribution(0.0, 1.0);
         double r = -log(distribution(level_generator_)) * reverse_size;
-        // return (int) r;
-        return maxLevel_ty;
+        return (int) 0;
+        // return maxLevel_ty;
 
     }
 
@@ -235,32 +247,36 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
     searchKnnParaForConstruction(tableint ep_id, const void *data_point) {
         tableint currObj = enterpoint_node_;
-        dist_t curdist = fstdistfunc_((vectorset*)data_point, (vectorset*)getDataByInternalId(enterpoint_node_), 0);
-        for (int level = maxlevel_; level > 0; level--) {
-            bool changed = true;
-            while (changed) {
-                changed = false;
-                unsigned int *data;
+        uint8_t* mapAB = (uint8_t*)malloc(240);
+        dist_t curdist = fstdistfuncInit_((vectorset*)data_point, (vectorset*)getDataByInternalId(enterpoint_node_), mapAB, 0);
+        // dist_t curdist = fstdistfunc_((vectorset*)data_point, (vectorset*)getDataByInternalId(enterpoint_node_), 0);
+        // for (int level = maxlevel_; level > 0; level--) {
+        //     bool changed = true;
+        //     while (changed) {
+        //         changed = false;
+        //         unsigned int *data;
 
-                data = (unsigned int *) get_linklist(currObj, level);
-                int size = getListCount(data);
-                metric_hops++;
-                metric_distance_computations+=size;
+        //         data = (unsigned int *) get_linklist(currObj, level);
+        //         int size = getListCount(data);
+        //         metric_hops++;
+        //         metric_distance_computations+=size;
 
-                tableint *datal = (tableint *) (data + 1);
-                for (int i = 0; i < size; i++) {
-                    tableint cand = datal[i];
-                    if (cand < 0 || cand > max_elements_)
-                        throw std::runtime_error("cand error");
-                    dist_t d = fstdistfunc_((vectorset*)data_point, (vectorset*)getDataByInternalId(cand), level);
-                    if (d < curdist) {
-                        curdist = d;
-                        currObj = cand;
-                        changed = true;
-                    }
-                }
-            }
-        }
+        //         tableint *datal = (tableint *) (data + 1);
+        //         uint8_t *distancelistl = (uint8_t *) (tableint *) (data + 1 + maxM0_);
+        //         for (int i = 0; i < size; i++) {
+        //             tableint cand = datal[i];
+        //             uint8_t *distancelisti = distancelistl + 240 * i;
+        //             if (cand < 0 || cand > max_elements_)
+        //                 throw std::runtime_error("cand error");
+        //             dist_t d = fstdistfunc_((vectorset*)data_point, (vectorset*)getDataByInternalId(cand), level);
+        //             if (d < curdist) {
+        //                 curdist = d;
+        //                 currObj = cand;
+        //                 changed = true;
+        //             }
+        //         }
+        //     }
+        // }
 
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
         std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> top_candidate_local(1);
@@ -273,26 +289,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         while (top_candidate_local[0].size() > ef_construction_) 
             top_candidate_local[0].pop();
 
-        // for(int i = 1; i < thread_num; i++){
-        //     // obj_list[i] = rand() % cur_element_count;
-        //     if (i <= entry_points.size()) {
-        //         std::unique_lock <std::mutex> lock_table(label_lookup_lock);
-        //         // std::cout << " " << entry_points[i - 1];
-        //         auto search = label_lookup_.find(entry_points[i - 1]);
-        //         obj_list[i] = search->second;
-        //     } else {
-        //         obj_list[i] = rand() % cur_element_count;
-        //     }
-        // }
-
-        // #pragma omp parallel num_threads(thread_num)
-        // {
-        //     int i = omp_get_thread_num();
-        //     top_candidate_local[i] = searchBaseLayerSTPara<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
-        //     // top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
-        //     while (top_candidate_local[i].size() > k) 
-        //         top_candidate_local[i].pop();
-        // } 
         top_candidates = top_candidate_local[0];
         // top_candidates = getMinKUnique(top_candidate_local, ef_construction_);
         while (top_candidates.size() > ef_construction_) {
@@ -408,32 +404,33 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         VisitedList *vl = visited_list_pool_->getFreeVisitedList();
         vl_type *visited_array = vl->mass;
         vl_type visited_array_tag = vl->curV;
-
+        uint8_t* mapEP = (uint8_t*)malloc(240);
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidate_set;
+        std::priority_queue<std::tuple<dist_t, tableint, uint8_t*>, std::vector<std::tuple<dist_t, tableint, uint8_t*>>, CompareTupleByFirst> candidate_set;
 
         dist_t lowerBound;
         if (bare_bone_search || 
             (!isMarkedDeleted(ep_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(ep_id))))) {
             char* ep_data = getDataByInternalId(ep_id);
-            dist_t dist = fstdistfunc4search_((vectorset*)data_point, (vectorset*)ep_data, 0);
+            dist_t dist = fstdistfuncInit_((vectorset*)data_point, (vectorset*)ep_data, mapEP, 0);
             // dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)ep_data);
             lowerBound = dist;
             top_candidates.emplace(dist, ep_id);
             if (!bare_bone_search && stop_condition) {
                 stop_condition->add_point_to_result(getExternalLabel(ep_id), ep_data, dist);
             }
-            candidate_set.emplace(-dist, ep_id);
+            candidate_set.emplace(-dist, ep_id, mapEP);
         } else {
             lowerBound = std::numeric_limits<dist_t>::max();
-            candidate_set.emplace(-lowerBound, ep_id);
+            candidate_set.emplace(-lowerBound, ep_id, mapEP);
         }
 
         visited_array[ep_id] = visited_array_tag;
 
         while (!candidate_set.empty()) {
-            std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
-            dist_t candidate_dist = -current_node_pair.first;
+            std::tuple<dist_t, tableint, uint8_t*> current_node_pair = candidate_set.top();
+            dist_t candidate_dist = -std::get<0>(current_node_pair);
+            uint8_t* mapAB = std::get<2>(current_node_pair);
 
             bool flag_stop_search;
             if (bare_bone_search) {
@@ -450,8 +447,11 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
             candidate_set.pop();
 
-            tableint current_node_id = current_node_pair.second;
+            tableint current_node_id = std::get<1>(current_node_pair);
+            char *nodeObj = (getDataByInternalId(current_node_id));
+
             int *data = (int *) get_linklist0(current_node_id);
+            uint8_t *distancelistl = (uint8_t *) ((tableint *)data + 1 + maxM0_);
             size_t size = getListCount((linklistsizeint*)data);
 //                bool cur_node_deleted = isMarkedDeleted(current_node_id);
             if (collect_metrics) {
@@ -468,6 +468,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
             for (size_t j = 1; j <= size; j++) {
                 int candidate_id = *(data + j);
+                uint8_t* mapBC = distancelistl + 240 * (j - 1);
 //                    if (candidate_id == 0) continue;
 #ifdef USE_SSE
                 _mm_prefetch((char *) (visited_array + *(data + j + 1)), _MM_HINT_T0);
@@ -478,8 +479,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     visited_array[candidate_id] = visited_array_tag;
 
                     char *currObj1 = (getDataByInternalId(candidate_id));
+                    uint8_t* mapAC = (uint8_t*)malloc(240);
                     // dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)currObj1);
-                    dist_t dist = fstdistfunc4search_((vectorset*)data_point, (vectorset*)currObj1, 0);
+                    // dist_t dist = fstdistfuncMap_((vectorset*)data_point, (vectorset*)currObj1)
+                    dist_t dist = fstdistfuncMap_((vectorset*)data_point, (vectorset*)nodeObj, (vectorset*)currObj1, mapAB, mapBC, mapAC, 0);
 
                     bool flag_consider_candidate;
                     if (!bare_bone_search && stop_condition) {
@@ -489,9 +492,9 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     }
 
                     if (flag_consider_candidate) {
-                        candidate_set.emplace(-dist, candidate_id);
+                        candidate_set.emplace(-dist, candidate_id, mapAC);
 #ifdef USE_SSE
-                        _mm_prefetch(data_level0_memory_ + candidate_set.top().second * size_data_per_element_ +
+                        _mm_prefetch(data_level0_memory_ + std::get<1>(candidate_set.top()) * size_data_per_element_ +
                                         offsetLevel0_,  ///////////
                                         _MM_HINT_T0);  ////////////////////////
 #endif
@@ -523,6 +526,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                         if (!top_candidates.empty())
                             lowerBound = top_candidates.top().first;
+                    } else {
+                        free(mapAC);
                     }
                 }
             }
@@ -858,12 +863,13 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
             setListCount(ll_cur, selectedNeighbors.size());
             tableint *data = (tableint *) (ll_cur + 1);
+            uint8_t* data_list = (uint8_t*) ((tableint *) data + maxM0_);
             for (size_t idx = 0; idx < selectedNeighbors.size(); idx++) {
                 if (data[idx] && !isUpdate)
                     throw std::runtime_error("Possible memory corruption");
                 if (level > element_levels_[selectedNeighbors[idx]])
                     throw std::runtime_error("Trying to make a link on a non-existent level");
-
+                dist_t tmp = fstdistfuncInit_((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), data_list + 240 * idx, 0);
                 data[idx] = selectedNeighbors[idx];
             }
         }
@@ -887,7 +893,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 throw std::runtime_error("Trying to make a link on a non-existent level");
 
             tableint *data = (tableint *) (ll_other + 1);
-
+            uint8_t* data_list = (uint8_t*) ((tableint *) data + maxM0_);
             bool is_cur_c_present = false;
             if (isUpdate) {
                 for (size_t j = 0; j < sz_link_list_other; j++) {
@@ -905,6 +911,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     setListCount(ll_other, sz_link_list_other + 1);
                 } else {
                     // finding the "weakest" element to replace it with the new one
+                    // dist_t tmp = fstdistfuncInit_((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), data_list + 240 * idx, 0);
+                
                     dist_t d_max = fstdistfunc_((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), level);
                     // Heuristic:
                     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidates;
@@ -920,6 +928,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     int indx = 0;
                     while (candidates.size() > 0) {
                         data[indx] = candidates.top().second;
+                        dist_t tmp = fstdistfuncInit_((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(data[indx]), data_list + 240 * indx, 0);
                         candidates.pop();
                         indx++;
                     }
@@ -1096,9 +1105,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             throw std::runtime_error("Not enough memory: loadIndex failed to allocate level0");
         input.read(data_level0_memory_, cur_element_count * size_data_per_element_);
 
-        size_links_per_element_ = maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
-
-        size_links_level0_ = maxM0_ * sizeof(tableint) + sizeof(linklistsizeint);
+        // 修改这里
+        size_links_per_element_ = maxM_ * (sizeof(tableint) + 240 * sizeof(uint8_t))  + sizeof(linklistsizeint);
+        size_links_level0_ = maxM0_ * (sizeof(tableint) + 240 * sizeof(uint8_t)) + sizeof(linklistsizeint);
+        //修改这里
         std::vector<std::mutex>(max_elements).swap(link_list_locks_);
         std::vector<std::mutex>(MAX_LABEL_OPERATION_LOCKS).swap(label_op_locks_);
 
@@ -1898,7 +1908,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         for(int i = 0; i < multi_entry_thread_num; i++)
         {
             // int i = omp_get_thread_num();
-            top_candidate_local[i] = searchBaseLayerSTPara<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
+            top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
             while (top_candidate_local[i].size() > k) 
                 top_candidate_local[i].pop();
         } 
@@ -2000,12 +2010,17 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         {
             int i = omp_get_thread_num();
             // std::cout << i << std::endl;
-            top_candidate_local[i] = searchBaseLayerSTPara<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
+            top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
             // top_candidate_local[i] = searchBaseLayerST<true>(obj_list[i], query_data, std::max(ef_, k), isIdAllowed);
             while (top_candidate_local[i].size() > k) 
                 top_candidate_local[i].pop();
         } 
-
+        // std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> refine_candidates;
+        // while (!top_candidate_local[0].empty()) {
+        //     std::pair<dist_t, tableint> rez = top_candidate_local[0].top();
+        //     top_candidates.push(std::pair<dist_t, labeltype>(fstdistfunc4search_((vectorset*)query_data, (vectorset*)getDataByInternalId(rez.second), 0), rez.second));
+        //     top_candidate_local[0].pop();
+        // }
         top_candidates = getMinKUnique(top_candidate_local, k);
         while (top_candidates.size() > k) {
             top_candidates.pop();

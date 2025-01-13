@@ -695,6 +695,175 @@ static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
     return sum1 / q_vecnum + sum2 / p_vecnum;
 }
 
+// static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int level) {
+//     float sum1 = 0.0f;
+//     float sum2 = 0.0f;
+//     // level = 0;
+//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
+//     #if defined(USE_AVX512)
+//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+//     #elif defined(USE_AVX)
+//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+//     #else 
+//     L2Sqrfunc_ = L2Sqr;
+//     #endif
+
+//     size_t p_vecnum = std::max(static_cast<size_t>(1), p->vecnum / (1 << level));
+
+//     if (level != 0) {
+//         std::vector<int> random_sequence_p;
+//         for (int i = 0; i < p->vecnum; ++i) {
+//             random_sequence_p.push_back(i); // 初始化为 1 到 n
+//         }
+//         // 使用随机数引擎打乱序列
+//         std::random_device rd;  // 随机设备（种子）
+//         std::mt19937 gen(rd()); // 使用 mt19937 引擎
+//         std::shuffle(random_sequence_p.begin(), random_sequence_p.end(), gen);
+//         std::vector<std::vector<float>> dist_matrix(q->vecnum, std::vector<float>(p_vecnum));
+//         //#pragma omp parallel for num_threads(4) reduction(+:sum1)
+//         #pragma omp simd reduction(+:sum1)
+//         for (size_t i = 0; i < q->vecnum; ++i) {
+//             const float* vec_q = q->data + i * q->dim;
+//             float maxDist = 99999.9f;
+//             for (size_t j = 0; j < p_vecnum; ++j) {
+//                 const float* vec_p = p->data + random_sequence_p[j] * p->dim;
+//                 float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+//                 dist_matrix[i][j] = dist;
+//                 maxDist = std::min(maxDist, dist);
+//             }
+//             sum1 += maxDist;
+//         }
+
+//         //#pragma omp parallel for num_threads(4) reduction(+:sum2)
+//         #pragma omp simd reduction(+:sum2)
+//         for (size_t i = 0; i < p_vecnum; ++i) {
+//             float maxDist = 99999.9f;
+//             for (size_t j = 0; j < q->vecnum; ++j) {
+//                 float dist = dist_matrix[j][i];
+//                 maxDist = std::min(maxDist, dist);
+//             }
+//             sum2 += maxDist;
+//         }
+//     } else {
+//         std::vector<std::vector<float>> dist_matrix(q->vecnum, std::vector<float>(p_vecnum));
+//         //#pragma omp parallel for num_threads(4) reduction(+:sum1)
+//         #pragma omp simd reduction(+:sum1)
+//         for (size_t i = 0; i < q->vecnum; ++i) {
+//             const float* vec_q = q->data + i * q->dim;
+//             float maxDist = 99999.9f;
+//             for (size_t j = 0; j < p_vecnum; ++j) {
+//                 const float* vec_p = p->data + j * p->dim;
+//                 float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+//                 dist_matrix[i][j] = dist;
+//                 maxDist = std::min(maxDist, dist);
+//             }
+//             sum1 += maxDist;
+//         }
+
+//         //#pragma omp parallel for num_threads(4) reduction(+:sum2)
+//         #pragma omp simd reduction(+:sum2)
+//         for (size_t i = 0; i < p_vecnum; ++i) {
+//             float maxDist = 99999.9f;
+//             for (size_t j = 0; j < q->vecnum; ++j) {
+//                 float dist = dist_matrix[j][i];
+//                 maxDist = std::min(maxDist, dist);
+//             }
+//             sum2 += maxDist;
+//         }
+//     }
+
+//     return sum1 / q->vecnum + sum2 /  p_vecnum;
+// }
+
+
+static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* new_map, int level) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    // level = 0;
+    float (*L2Sqrfunc_)(const void*, const void*, const void*);
+    #if defined(USE_AVX512)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    #elif defined(USE_AVX)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    #else 
+    L2Sqrfunc_ = L2Sqr;
+    #endif
+    size_t a_vecnum = std::min(a->vecnum, (size_t)120);
+    size_t b_vecnum = std::min(b->vecnum, (size_t)120);
+
+    std::vector<std::vector<float>> dist_matrix(a_vecnum, std::vector<float>(b_vecnum));
+    //#pragma omp parallel for num_threads(4) reduction(+:sum1)
+    #pragma omp simd reduction(+:sum1)
+    for (size_t i = 0; i < a_vecnum; ++i) {
+        const float* vec_a = a->data + i * a->dim;
+        for (size_t j = 0; j < b_vecnum; ++j) {
+            const float* vec_b = b->data + j * b->dim;
+            float dist = L2Sqrfunc_(vec_a, vec_b, &b->dim);
+            dist_matrix[i][j] = dist;
+        }
+    }
+
+    for (uint8_t i = 0; i < a_vecnum; ++i) {
+        float maxDist = 99999.9f;
+        for (uint8_t j = 0; j < b_vecnum; ++j) {
+            if (dist_matrix[i][j] < maxDist) {
+                new_map[i] = j;
+                maxDist = dist_matrix[i][j];
+            }
+        }
+        sum1 += maxDist;
+    }
+
+    for (uint8_t i = 0; i < b_vecnum; ++i) {
+        float maxDist = 99999.9f;
+        for (uint8_t j = 0; j < a_vecnum; ++j) {
+            if (dist_matrix[j][i] < maxDist) {
+                new_map[i + 120] = j;
+                maxDist = dist_matrix[j][i];
+            }
+        }
+        sum2 += maxDist;
+    }
+
+    return sum1 / a_vecnum + sum2 / b_vecnum;
+}
+
+static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vectorset* c, const uint8_t* old_map_ab, const uint8_t* old_map_bc, uint8_t* new_map, int level) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    // level = 0;
+    float (*L2Sqrfunc_)(const void*, const void*, const void*);
+    #if defined(USE_AVX512)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    #elif defined(USE_AVX)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    #else 
+    L2Sqrfunc_ = L2Sqr;
+    #endif
+    size_t a_vecnum = std::min(a->vecnum, (size_t)120);
+    size_t b_vecnum = std::min(b->vecnum, (size_t)120);
+    size_t c_vecnum = std::min(c->vecnum, (size_t)120);
+    std::vector<std::vector<float>> dist_matrix(a_vecnum, std::vector<float>(c_vecnum));
+
+    #pragma omp simd reduction(+:sum1)
+    for (size_t i = 0; i < a_vecnum; ++i) {
+        const float* vec_a = a->data + i * a->dim;
+        const float* vec_c = c->data + old_map_bc[old_map_ab[i]] * c->dim;
+        float dist = L2Sqrfunc_(vec_a, vec_c, &a->dim);
+        new_map[i] = old_map_bc[old_map_ab[i]];
+        sum1 += dist;
+    }
+
+    #pragma omp simd reduction(+:sum2)
+    for (size_t i = 0; i < c_vecnum; ++i) {
+        const float* vec_c = c->data + i * c->dim;
+        const float* vec_a = a->data + old_map_bc[120 + old_map_ab[120 + i]] * a->dim;
+        float dist = L2Sqrfunc_(vec_c, vec_a, &c->dim);
+        sum2 += dist;
+    }
+    return sum1 / a_vecnum + sum2 / c_vecnum;
+}
+
 static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int level) {
     float sum1 = 0.0f;
     float sum2 = 0.0f;
@@ -774,8 +943,6 @@ static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int leve
 
     return sum1 / q->vecnum + sum2 /  p_vecnum;
 }
-
-
 
 
 

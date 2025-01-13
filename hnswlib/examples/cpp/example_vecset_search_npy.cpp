@@ -574,9 +574,9 @@ int main() {
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth(
         NUM_QUERY_SETS, std::vector<std::pair<int, float>>(K, {0, 0.0f})
     );
-    bool test_subset = false;
+    bool test_subset = true;
     bool load_bf_from_cache = true;
-    bool rebuild = false;
+    bool rebuild = true;
     int dist_metric = 2;
     int multi_entries_num = 40;
     int multi_entries_range = 100;
@@ -654,7 +654,7 @@ int main() {
         solution.load(index_file, VECTOR_DIM, base);
     }
 
-    for (int tmpef = 100; tmpef <= 800; tmpef += 50) {
+    for (int tmpef = 500; tmpef <= 1000; tmpef += 50) {
         double total_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
         double total_dataset_bf_recall = 0.0;
