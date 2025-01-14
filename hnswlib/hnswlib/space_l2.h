@@ -780,6 +780,8 @@ static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* ne
     float sum1 = 0.0f;
     float sum2 = 0.0f;
     // level = 0;
+    uint8_t fineEdgeTopk = 1;
+    uint8_t fineEdgeMaxlen = 120;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
@@ -788,12 +790,12 @@ static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* ne
     #else 
     L2Sqrfunc_ = L2Sqr;
     #endif
-    size_t a_vecnum = std::min(a->vecnum, (size_t)120);
-    size_t b_vecnum = std::min(b->vecnum, (size_t)120);
+    uint8_t a_vecnum = (uint8_t) std::min(a->vecnum, (size_t)120);
+    uint8_t b_vecnum = (uint8_t) std::min(b->vecnum, (size_t)120);
 
     std::vector<std::vector<float>> dist_matrix(a_vecnum, std::vector<float>(b_vecnum));
     //#pragma omp parallel for num_threads(4) reduction(+:sum1)
-    #pragma omp simd reduction(+:sum1)
+    // #pragma omp simd reduction(+:sum1)
     for (size_t i = 0; i < a_vecnum; ++i) {
         const float* vec_a = a->data + i * a->dim;
         for (size_t j = 0; j < b_vecnum; ++j) {
@@ -802,14 +804,28 @@ static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* ne
             dist_matrix[i][j] = dist;
         }
     }
-
+    // std::cout << (u_int16_t)a_vecnum << " " << (u_int16_t)b_vecnum << std::endl;
+            
+    std::priority_queue<std::pair<float, uint8_t>> pq;
     for (uint8_t i = 0; i < a_vecnum; ++i) {
         float maxDist = 99999.9f;
         for (uint8_t j = 0; j < b_vecnum; ++j) {
-            if (dist_matrix[i][j] < maxDist) {
-                new_map[i] = j;
-                maxDist = dist_matrix[i][j];
+            if (pq.size() < fineEdgeTopk) {
+                pq.push({dist_matrix[i][j], j});
+            } else if (dist_matrix[i][j] < pq.top().first) {
+                pq.pop();
+                pq.push({dist_matrix[i][j], j});
             }
+        }
+        uint8_t j = pq.size();
+        while (!pq.empty()) {
+            j -= 1;
+            if (pq.size() == 1) {
+                maxDist = pq.top().first;
+            }
+            new_map[i * fineEdgeTopk + j] = pq.top().second;
+            // std::cout << (u_int16_t)i << " " << (u_int16_t)j << " " << pq.top().first << " "  << (u_int16_t) pq.top().second << std::endl;
+            pq.pop();
         }
         sum1 += maxDist;
     }
@@ -817,10 +833,22 @@ static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* ne
     for (uint8_t i = 0; i < b_vecnum; ++i) {
         float maxDist = 99999.9f;
         for (uint8_t j = 0; j < a_vecnum; ++j) {
-            if (dist_matrix[j][i] < maxDist) {
-                new_map[i + 120] = j;
-                maxDist = dist_matrix[j][i];
+            if (pq.size() < fineEdgeTopk) {
+                pq.push({dist_matrix[j][i], j});
+            } else if (dist_matrix[j][i] < pq.top().first) {
+                pq.pop();
+                pq.push({dist_matrix[j][i], j});
             }
+        }
+        uint8_t j = pq.size();
+        while (!pq.empty()) {
+            j -= 1;
+            if (pq.size() == 1) {
+                maxDist = pq.top().first;
+            }
+            new_map[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + j] = pq.top().second;
+            // std::cout << (u_int16_t)i << " " << (u_int16_t)j << " " << pq.top().first << " "  << (u_int16_t) pq.top().second << std::endl;
+            pq.pop();
         }
         sum2 += maxDist;
     }
@@ -840,27 +868,107 @@ static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vector
     #else 
     L2Sqrfunc_ = L2Sqr;
     #endif
-    size_t a_vecnum = std::min(a->vecnum, (size_t)120);
-    size_t b_vecnum = std::min(b->vecnum, (size_t)120);
-    size_t c_vecnum = std::min(c->vecnum, (size_t)120);
+    uint8_t a_vecnum = (uint8_t) std::min(a->vecnum, (size_t)120);
+    uint8_t b_vecnum = (uint8_t) std::min(b->vecnum, (size_t)120);
+    uint8_t c_vecnum = (uint8_t) std::min(c->vecnum, (size_t)120);
     std::vector<std::vector<float>> dist_matrix(a_vecnum, std::vector<float>(c_vecnum));
 
-    #pragma omp simd reduction(+:sum1)
+    uint8_t fineEdgeTopk = 1;
+    uint8_t fineEdgeMaxlen = 120;
+    // #pragma omp simd reduction(+:sum1)
     for (size_t i = 0; i < a_vecnum; ++i) {
-        const float* vec_a = a->data + i * a->dim;
-        const float* vec_c = c->data + old_map_bc[old_map_ab[i]] * c->dim;
-        float dist = L2Sqrfunc_(vec_a, vec_c, &a->dim);
-        new_map[i] = old_map_bc[old_map_ab[i]];
-        sum1 += dist;
+        for (size_t j = 0; j < c_vecnum; ++j) {
+            dist_matrix[i][j] = 9999.0;
+        }
+    }
+    // std::cout << (u_int16_t)a_vecnum << " " << (u_int16_t)b_vecnum << " " << (u_int16_t)c_vecnum << std::endl;
+    // #pragma omp simd reduction(+:sum1)
+    for (uint8_t i = 0; i < a_vecnum; ++i) {
+        for (uint8_t j = 0; j < fineEdgeTopk; j++) {
+            for (uint8_t k = 0; k < fineEdgeTopk; k++) {
+                uint8_t c_ind = old_map_bc[old_map_ab[i * fineEdgeTopk + j] * fineEdgeTopk + k];
+                // std::cout << (u_int16_t)i << " " << (u_int16_t)old_map_ab[i * fineEdgeTopk + j] << " " << (u_int16_t)c_ind << std::endl;
+                if (dist_matrix[i][c_ind] > 9000.0) {
+                    const float* vec_a = a->data + i * a->dim;
+                    const float* vec_c = c->data + c_ind * c->dim;
+                    dist_matrix[i][c_ind] = L2Sqrfunc_(vec_a, vec_c, &a->dim);
+                } 
+            }
+        }
+    }
+    // std::cout << "ac" << std::endl;
+
+    // for (uint8_t i = 0; i < 10; ++i) {
+    //     std::cout << (u_int16_t)i << " " << (u_int16_t)old_map_bc[i] << std::endl;
+    // }
+    // for (uint8_t i = 0; i < 10; ++i) {
+    //     std::cout << (u_int16_t)i << " " << (u_int16_t)old_map_bc[i + 120 * 1] << std::endl;
+    // }
+    // std::cout << "== MapBC ==" << std::endl;
+
+    // std::cout << (u_int16_t) a_vecnum << " " << (u_int16_t) c_vecnum << std::endl;
+    // #pragma omp simd reduction(+:sum2)
+    for (uint8_t i = 0; i < c_vecnum; ++i) {
+        for (uint8_t j = 0; j < fineEdgeTopk; j++) {
+            for (uint8_t k = 0; k < fineEdgeTopk; k++) {
+                uint8_t a_ind = old_map_ab[old_map_bc[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + j] * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + k];
+                // std::cout << (u_int16_t) i << " " << (u_int16_t) old_map_bc[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + j] << " " << (u_int16_t) a_ind << std::endl;
+                if (dist_matrix[a_ind][i] > 9000.0) {
+                    const float* vec_a = a->data + a_ind * a->dim;
+                    const float* vec_c = c->data + i * c->dim;
+                    dist_matrix[a_ind][i] = L2Sqrfunc_(vec_a, vec_c, &a->dim);
+                } 
+            }
+        }
+    }
+    // std::cout << "ca" << std::endl;
+    std::priority_queue<std::pair<float, uint8_t>> pq;
+    for (uint8_t i = 0; i < a_vecnum; ++i) {
+        float maxDist = 99999.9f;
+        for (uint8_t j = 0; j < c_vecnum; ++j) {
+            if (pq.size() < fineEdgeTopk) {
+                pq.push({dist_matrix[i][j], j});
+            } else if (dist_matrix[i][j] < pq.top().first) {
+                pq.pop();
+                pq.push({dist_matrix[i][j], j});
+            }
+        }
+        uint8_t j = pq.size();
+        while (!pq.empty()) {
+            j -= 1;
+            if (pq.size() == 1) {
+                maxDist = pq.top().first;
+            }
+            new_map[i * fineEdgeTopk + j] = pq.top().second;
+            pq.pop();
+        }
+        sum1 += maxDist;
     }
 
-    #pragma omp simd reduction(+:sum2)
-    for (size_t i = 0; i < c_vecnum; ++i) {
-        const float* vec_c = c->data + i * c->dim;
-        const float* vec_a = a->data + old_map_bc[120 + old_map_ab[120 + i]] * a->dim;
-        float dist = L2Sqrfunc_(vec_c, vec_a, &c->dim);
-        sum2 += dist;
+    for (uint8_t i = 0; i < c_vecnum; ++i) {
+        float maxDist = 99999.9f;
+        for (uint8_t j = 0; j < a_vecnum; ++j) {
+            if (pq.size() < fineEdgeTopk) {
+                pq.push({dist_matrix[j][i], j});
+            } else if (dist_matrix[j][i] < pq.top().first) {
+                pq.pop();
+                pq.push({dist_matrix[j][i], j});
+            }
+        }
+        uint8_t j = pq.size();
+        while (!pq.empty()) {
+            j -= 1;
+            if (pq.size() == 1) {
+                maxDist = pq.top().first;
+            }
+            new_map[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + j] = pq.top().second;
+            // std::cout << "top1: " << (u_int16_t) pq.top().second << std::endl;
+            pq.pop();
+            
+        }
+        sum2 += maxDist;
     }
+    // std::cout << pq.size() << std::endl;
     return sum1 / a_vecnum + sum2 / c_vecnum;
 }
 

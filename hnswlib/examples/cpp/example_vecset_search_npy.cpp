@@ -64,8 +64,9 @@ public:
         base_vectors = base;
         space_ptr = new hnswlib::L2VSSpace(dimension);
         alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, base_vectors.size() + 1, 16, 80);
-        #pragma omp parallel for schedule(dynamic)
+        // #pragma omp parallel for schedule(dynamic)
         for(hnswlib::labeltype i = 0; i < base_vectors.size(); i++){
+            // std::cout << i << std::endl;
             if (i % 1000 == 0) {
                 std::cout << i << std::endl;
             }
@@ -76,10 +77,11 @@ public:
         // Add any necessary pre-computation or indexing for the optimized search
     }
 
-    double search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
+    double search(const vectorset query, int k, int ef, std::vector<std::pair<int, float>>& res) const {
         res.clear();
+        alg_hnsw->setEf(ef);
         double start_time = omp_get_wtime();
-        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnPara2(&query, k);
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnFineEdge(&query, k);
         for(int i = 0; i < k; i++){
             res.push_back(std::make_pair(result.top().second, result.top().first));
             result.pop();
@@ -692,7 +694,8 @@ int main() {
             // std::cout << bf_ground_truth[i].size() << std::endl;
             // std::cout<<entry_points.size()<<std::endl;
             // double query_time = solution.search(query[i], K, solution_indices);
-            double query_time = solution.searchFromEntries(query[i], K, tmpef, entry_points, solution_indices);
+            // double query_time = solution.searchFromEntries(query[i], K, tmpef, entry_points, solution_indices);
+            double query_time = solution.search(query[i], K, tmpef, solution_indices);
             // for (int j = 0; j < K; j ++) {
             //     std::cout << solution_indices[j].first << " " << solution_indices[j].second << " ";
             // }
