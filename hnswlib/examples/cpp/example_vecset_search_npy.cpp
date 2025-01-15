@@ -64,7 +64,7 @@ public:
         base_vectors = base;
         space_ptr = new hnswlib::L2VSSpace(dimension);
         alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, base_vectors.size() + 1, 16, 80);
-        // #pragma omp parallel for schedule(dynamic)
+        #pragma omp parallel for schedule(dynamic)
         for(hnswlib::labeltype i = 0; i < base_vectors.size(); i++){
             // std::cout << i << std::endl;
             if (i % 1000 == 0) {
@@ -578,7 +578,7 @@ int main() {
     );
     bool test_subset = true;
     bool load_bf_from_cache = true;
-    bool rebuild = true;
+    bool rebuild = false;
     int dist_metric = 2;
     int multi_entries_num = 40;
     int multi_entries_range = 100;
@@ -656,7 +656,7 @@ int main() {
         solution.load(index_file, VECTOR_DIM, base);
     }
 
-    for (int tmpef = 500; tmpef <= 1000; tmpef += 50) {
+    for (int tmpef = 100; tmpef <= 100; tmpef += 100) {
         double total_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
         double total_dataset_bf_recall = 0.0;
@@ -743,6 +743,8 @@ int main() {
         std::cout << "Average Dataset BF Recall: " << average_dataset_bf_recall << std::endl;
         std::cout << "Average entry recall: " << total_enrty_recall_10/NUM_QUERY_SETS << " " << total_enrty_recall_30/NUM_QUERY_SETS << " " << total_enrty_recall_50/NUM_QUERY_SETS << " " << total_enrty_recall_100/NUM_QUERY_SETS << std::endl;
         std::cout << "Average query time: " << total_query_time/NUM_QUERY_SETS << " seconds" << std::endl;
+        std::cout << "Average L2Sqr was called " << l2_sqr_call_count.load() / NUM_QUERY_SETS << " times." << std::endl;
+        std::cout << "Average L2Vec was called " << l2_vec_call_count.load() / NUM_QUERY_SETS << " times." << std::endl;
     }
     return 0;
 

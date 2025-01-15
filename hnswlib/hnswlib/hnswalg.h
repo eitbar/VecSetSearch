@@ -14,6 +14,9 @@ namespace hnswlib {
 typedef unsigned int tableint;
 typedef unsigned int linklistsizeint;
 
+
+std::mutex cout_mutex;
+
 template<typename dist_t>
 class HierarchicalNSW : public AlgorithmInterface<dist_t> {
  public:
@@ -35,7 +38,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     int maxlevel_{0};
     int maxLevel_ty=3;
 
-    const int fineEdgeTopk = 1;
+    const int fineEdgeTopk = 5;
     const int fineEdgeMaxlen = 120;
     const int fineEdgeSize = fineEdgeMaxlen * 2 * fineEdgeTopk;
     const int multi_entry_thread_num = 1;
@@ -251,7 +254,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     searchKnnParaForConstruction(tableint ep_id, const void *data_point) {
         tableint currObj = enterpoint_node_;
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-        top_candidates = searchBaseLayerST<true>(currObj, data_point, ef_construction_);
+        top_candidates = searchBaseLayerFullPreST<true>(currObj, data_point, ef_construction_);
         while (top_candidates.size() > ef_construction_) {
             top_candidates.pop();
         }
@@ -374,12 +377,17 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             (!isMarkedDeleted(ep_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(ep_id))))) {
             char* ep_data = getDataByInternalId(ep_id);
             dist_t dist = fstdistfuncInit_((vectorset*)data_point, (vectorset*)ep_data, mapEP, 0);
-            // for (uint8_t i = 0; i < 120; ++i) {
-            //     std::cout << (u_int16_t)i << " " << (u_int16_t)mapEP[i] << std::endl;
+            // size_t an = std::min(((vectorset*)data_point)->vecnum, (size_t)120);
+            // size_t bn = std::min(((vectorset*)ep_data)->vecnum, (size_t)120);
+            // for (uint8_t i = 0; i < an; i++) {
+            //     std::cout << (uint16_t) i << " " << (uint16_t) mapEP[i] << " " << bn << std::endl;
+            //     assert(mapEP[i] < (uint8_t)bn);
             // }
-            // for (uint8_t i = 0; i < 10; ++i) {
-            //     std::cout << (u_int16_t)i << " " << (u_int16_t)mapEP[i + 120 * 1] << std::endl;
+            // for (uint8_t i = 0; i < bn; i++) {
+            //     std::cout << (uint16_t) i << " " << (uint16_t) mapEP[i + 120] << " " << an << std::endl;
+            //     assert(mapEP[i + 120] < (uint8_t)an);
             // }
+            // std::cout << "===== outer ====" << an << " " << bn << std::endl;
             // std::cout << "====" << std::endl;
             // dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)ep_data);
             lowerBound = dist;
@@ -442,14 +450,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
             for (size_t j = 1; j <= size; j++) {
                 int candidate_id = *(data + j);
-                uint8_t* mapBC = distancelistl + fineEdgeSize * ((u_int8_t)j - 1);
-                // for (uint8_t i = 0; i < 120; ++i) {
-                //     std::cout << (u_int16_t)i << " " << (u_int16_t)mapBC[i] << std::endl;
-                // }
-                // for (uint8_t i = 0; i < 120; ++i) {
-                //     std::cout << (u_int16_t)i << " " << (u_int16_t)mapBC[i + 120 * 1] << std::endl;
-                // }
-                // std::cout << "== MapBC ==" << std::endl;
+                uint8_t* mapBC = distancelistl + fineEdgeSize * (j - 1);
 //                    if (candidate_id == 0) continue;
 #ifdef USE_SSE
                 _mm_prefetch((char *) (visited_array + *(data + j + 1)), _MM_HINT_T0);
@@ -461,8 +462,26 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                     char *currObj1 = (getDataByInternalId(candidate_id));
                     uint8_t* mapAC = (uint8_t*)malloc(fineEdgeSize);
-                    // dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)currObj1);
-                    // dist_t dist = fstdistfuncMap_((vectorset*)data_point, (vectorset*)currObj1)
+
+                    // {
+                    //     std::lock_guard<std::mutex> lock(cout_mutex); 
+                    //     std::cout << "search ==" << current_node_id << " " << candidate_id << " " << j - 1 << std::endl;
+                    //     size_t bn = std::min(((vectorset*)nodeObj)->vecnum, (size_t)120);
+                    //     size_t cn = std::min(((vectorset*)currObj1)->vecnum, (size_t)120);    
+                    //     std::cout << "== MapBC == " << bn << " " << cn << std::endl;
+                    //     bool flag = true;
+                    //     for (uint8_t i = 0; i < bn; ++i) {
+                    //         std::cout << (u_int16_t)i << " " << (u_int16_t)(mapBC[i]) << std::endl;
+                    //         flag = flag & ((mapBC[i]) < cn);
+                    //     }
+                    //     for (uint8_t i = 0; i < cn; ++i) {
+                    //         std::cout << (u_int16_t)i << " " << (u_int16_t)(mapBC[i + 120 * 1]) << std::endl;
+                    //         flag = flag & ((mapBC[i + 120]) < bn);
+                    //     }
+                    //     assert (flag);
+                    //     std::cout << "== MapBC ==" << std::endl;
+                    // }
+
                     dist_t dist = fstdistfuncMap_((vectorset*)data_point, (vectorset*)nodeObj, (vectorset*)currObj1, mapAB, mapBC, mapAC, 0);
 
                     bool flag_consider_candidate;
@@ -471,8 +490,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     } else {
                         flag_consider_candidate = top_candidates.size() < ef || lowerBound > dist;
                     }
+                    // std::cout << flag_consider_candidate << std::endl;
 
                     if (flag_consider_candidate) {
+                        dist = fstdistfuncInit_((vectorset*)data_point, (vectorset*)currObj1, mapAC, 0);
                         candidate_set.emplace(-dist, candidate_id, mapAC);
 #ifdef USE_SSE
                         _mm_prefetch(data_level0_memory_ + std::get<1>(candidate_set.top()) * size_data_per_element_ +
@@ -515,6 +536,145 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             // std::cout << " free" << std::endl;
             free(mapAB);
             // std::cout << " free" << std::endl;
+        }
+
+        visited_list_pool_->releaseVisitedList(vl);
+        // std::cout << top_candidates.size() << std::endl;
+        return top_candidates;
+    }
+
+
+
+    // bare_bone_search means there is no check for deletions and stop condition is ignored in return of extra performance
+    template <bool bare_bone_search = true, bool collect_metrics = false>
+    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
+    searchBaseLayerFullPreST(
+        tableint ep_id,
+        const void *data_point,
+        size_t ef,
+        BaseFilterFunctor* isIdAllowed = nullptr,
+        BaseSearchStopCondition<dist_t>* stop_condition = nullptr) const {
+        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
+        vl_type *visited_array = vl->mass;
+        vl_type visited_array_tag = vl->curV;
+
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidate_set;
+
+        dist_t lowerBound;
+        if (bare_bone_search || 
+            (!isMarkedDeleted(ep_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(ep_id))))) {
+            char* ep_data = getDataByInternalId(ep_id);
+            dist_t dist = fstdistfunc4search_((vectorset*)data_point, (vectorset*)ep_data, 0);
+            // dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)ep_data);
+            lowerBound = dist;
+            top_candidates.emplace(dist, ep_id);
+            if (!bare_bone_search && stop_condition) {
+                stop_condition->add_point_to_result(getExternalLabel(ep_id), ep_data, dist);
+            }
+            candidate_set.emplace(-dist, ep_id);
+        } else {
+            lowerBound = std::numeric_limits<dist_t>::max();
+            candidate_set.emplace(-lowerBound, ep_id);
+        }
+
+        visited_array[ep_id] = visited_array_tag;
+
+        while (!candidate_set.empty()) {
+            std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
+            dist_t candidate_dist = -current_node_pair.first;
+
+            bool flag_stop_search;
+            if (bare_bone_search) {
+                flag_stop_search = candidate_dist > lowerBound;
+            } else {
+                if (stop_condition) {
+                    flag_stop_search = stop_condition->should_stop_search(candidate_dist, lowerBound);
+                } else {
+                    flag_stop_search = candidate_dist > lowerBound && top_candidates.size() == ef;
+                }
+            }
+            if (flag_stop_search) {
+                break;
+            }
+            candidate_set.pop();
+
+            tableint current_node_id = current_node_pair.second;
+            int *data = (int *) get_linklist0(current_node_id);
+            size_t size = getListCount((linklistsizeint*)data);
+//                bool cur_node_deleted = isMarkedDeleted(current_node_id);
+            if (collect_metrics) {
+                metric_hops++;
+                metric_distance_computations+=size;
+            }
+
+#ifdef USE_SSE
+            _mm_prefetch((char *) (visited_array + *(data + 1)), _MM_HINT_T0);
+            _mm_prefetch((char *) (visited_array + *(data + 1) + 64), _MM_HINT_T0);
+            _mm_prefetch(data_level0_memory_ + (*(data + 1)) * size_data_per_element_ + offsetData_, _MM_HINT_T0);
+            _mm_prefetch((char *) (data + 2), _MM_HINT_T0);
+#endif
+
+            for (size_t j = 1; j <= size; j++) {
+                int candidate_id = *(data + j);
+//                    if (candidate_id == 0) continue;
+#ifdef USE_SSE
+                _mm_prefetch((char *) (visited_array + *(data + j + 1)), _MM_HINT_T0);
+                _mm_prefetch(data_level0_memory_ + (*(data + j + 1)) * size_data_per_element_ + offsetData_,
+                                _MM_HINT_T0);  ////////////
+#endif
+                if (!(visited_array[candidate_id] == visited_array_tag)) {
+                    visited_array[candidate_id] = visited_array_tag;
+
+                    char *currObj1 = (getDataByInternalId(candidate_id));
+                    // dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)currObj1);
+                    dist_t dist = fstdistfunc4search_((vectorset*)data_point, (vectorset*)currObj1, 0);
+
+                    bool flag_consider_candidate;
+                    if (!bare_bone_search && stop_condition) {
+                        flag_consider_candidate = stop_condition->should_consider_candidate(dist, lowerBound);
+                    } else {
+                        flag_consider_candidate = top_candidates.size() < ef || lowerBound > dist;
+                    }
+
+                    if (flag_consider_candidate) {
+                        candidate_set.emplace(-dist, candidate_id);
+#ifdef USE_SSE
+                        _mm_prefetch(data_level0_memory_ + candidate_set.top().second * size_data_per_element_ +
+                                        offsetLevel0_,  ///////////
+                                        _MM_HINT_T0);  ////////////////////////
+#endif
+
+                        if (bare_bone_search || 
+                            (!isMarkedDeleted(candidate_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(candidate_id))))) {
+                            top_candidates.emplace(dist, candidate_id);
+                            if (!bare_bone_search && stop_condition) {
+                                stop_condition->add_point_to_result(getExternalLabel(candidate_id), currObj1, dist);
+                            }
+                        }
+
+                        bool flag_remove_extra = false;
+                        if (!bare_bone_search && stop_condition) {
+                            flag_remove_extra = stop_condition->should_remove_extra();
+                        } else {
+                            flag_remove_extra = top_candidates.size() > ef;
+                        }
+                        while (flag_remove_extra) {
+                            tableint id = top_candidates.top().second;
+                            top_candidates.pop();
+                            if (!bare_bone_search && stop_condition) {
+                                stop_condition->remove_point_from_result(getExternalLabel(id), getDataByInternalId(id), dist);
+                                flag_remove_extra = stop_condition->should_remove_extra();
+                            } else {
+                                flag_remove_extra = top_candidates.size() > ef;
+                            }
+                        }
+
+                        if (!top_candidates.empty())
+                            lowerBound = top_candidates.top().first;
+                    }
+                }
+            }
         }
 
         visited_list_pool_->releaseVisitedList(vl);
@@ -854,6 +1014,24 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 if (level > element_levels_[selectedNeighbors[idx]])
                     throw std::runtime_error("Trying to make a link on a non-existent level");
                 dist_t tmp = fstdistfuncInit_((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), data_list + fineEdgeSize * idx, 0);
+                // {
+                //     std::lock_guard<std::mutex> lock(cout_mutex); 
+                //     size_t bn = std::min(((vectorset*)getDataByInternalId(cur_c))->vecnum, (size_t)120);
+                //     size_t cn = std::min(((vectorset*)getDataByInternalId(selectedNeighbors[idx]))->vecnum, (size_t)120);   
+                //     std::cout << "connect ==" << cur_c << " " << selectedNeighbors[idx] << " " << idx << std::endl;
+                //     std::cout << "== MapBC == " << bn << " " << cn << std::endl;
+                //     bool flag = true;
+                //     for (uint8_t i = 0; i < bn; ++i) {
+                //         std::cout << (u_int16_t)i << " " << (u_int16_t)((data_list + fineEdgeSize * idx)[i]) << std::endl;
+                //         flag = flag & (((data_list + fineEdgeSize * idx)[i]) < cn);
+                //     }
+                //     for (uint8_t i = 0; i < cn; ++i) {
+                //         std::cout << (u_int16_t)i << " " << (u_int16_t)((data_list + fineEdgeSize * idx)[i + 120 * 1]) << std::endl;
+                //         flag = flag & (((data_list + fineEdgeSize * idx)[i + 120]) < bn);
+                //     }
+                //     assert (flag);
+                //     std::cout << "== MapBC ==" << std::endl;
+                // }
                 data[idx] = selectedNeighbors[idx];
             }
         }
@@ -892,6 +1070,25 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             if (!is_cur_c_present) {
                 if (sz_link_list_other < Mcurmax) {
                     data[sz_link_list_other] = cur_c;
+                    dist_t tmp = fstdistfuncInit_((vectorset*)getDataByInternalId(selectedNeighbors[idx]), (vectorset*)getDataByInternalId(cur_c), data_list + fineEdgeSize * sz_link_list_other, 0);
+                    // {
+                    //     std::lock_guard<std::mutex> lock(cout_mutex); 
+                    //     size_t bn = std::min(((vectorset*)getDataByInternalId(selectedNeighbors[idx]))->vecnum, (size_t)120);
+                    //     size_t cn = std::min(((vectorset*)getDataByInternalId(cur_c))->vecnum, (size_t)120);    
+                    //     std::cout << "connect ==" << selectedNeighbors[idx] << " " << cur_c << " " << sz_link_list_other << std::endl;
+                    //     std::cout << "== MapBC == " << bn << " " << cn << std::endl;
+                    //     bool flag = true;
+                    //     for (uint8_t i = 0; i < bn; ++i) {
+                    //         std::cout << (u_int16_t)i << " " << (u_int16_t)((data_list + fineEdgeSize * sz_link_list_other)[i]) << std::endl;
+                    //         flag = flag & (((data_list + fineEdgeSize * sz_link_list_other)[i]) < cn);
+                    //     }
+                    //     for (uint8_t i = 0; i < cn; ++i) {
+                    //         std::cout << (u_int16_t)i << " " << (u_int16_t)((data_list + fineEdgeSize * sz_link_list_other)[i + 120 * 1]) << std::endl;
+                    //         flag = flag & (((data_list + fineEdgeSize * sz_link_list_other)[i + 120]) < bn);
+                    //     }
+                    //     assert (flag);
+                    //     std::cout << "== MapBC ==" << std::endl;
+                    // }
                     setListCount(ll_other, sz_link_list_other + 1);
                 } else {
                     // finding the "weakest" element to replace it with the new one
@@ -913,6 +1110,24 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     while (candidates.size() > 0) {
                         data[indx] = candidates.top().second;
                         dist_t tmp = fstdistfuncInit_((vectorset*)getDataByInternalId(selectedNeighbors[idx]), (vectorset*)getDataByInternalId(data[indx]), data_list + fineEdgeSize * indx, 0);
+                        // {
+                        //     std::lock_guard<std::mutex> lock(cout_mutex); 
+                        //     size_t bn = std::min(((vectorset*)getDataByInternalId(selectedNeighbors[idx]))->vecnum, (size_t)120);
+                        //     size_t cn = std::min(((vectorset*)getDataByInternalId(data[indx]))->vecnum, (size_t)120);    
+                        //     std::cout << "connect ==" << selectedNeighbors[idx] << " " << data[indx] << " " << indx << std::endl;
+                        //     std::cout << "== MapBC == " << bn << " " << cn << std::endl;
+                        //     bool flag = true;
+                        //     for (uint8_t i = 0; i < bn; ++i) {
+                        //         std::cout << (u_int16_t)i << " " << (u_int16_t)((data_list + fineEdgeSize * indx)[i]) << std::endl;
+                        //         flag = flag & ((((data_list + fineEdgeSize * indx)[i]) < cn));
+                        //     }
+                        //     for (uint8_t i = 0; i < cn; ++i) {
+                        //         std::cout << (u_int16_t)i << " " << (u_int16_t)((data_list + fineEdgeSize * indx)[i + 120 * 1]) << std::endl;
+                        //         flag = flag & (((data_list + fineEdgeSize * indx)[i + 120]) < bn);
+                        //     }
+                        //     assert (flag);
+                        //     std::cout << "== MapBC ==" << std::endl;
+                        // }
                         candidates.pop();
                         indx++;
                     }
@@ -1321,7 +1536,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     void updatePoint(const void *dataPoint, tableint internalId, float updateNeighborProbability) {
         // update the feature vector associated with existing point with new vector
         memcpy(getDataByInternalId(internalId), dataPoint, data_size_);
-
+        std::cout << "???" << std::endl;
         int maxLevelCopy = maxlevel_;
         tableint entryPointCopy = enterpoint_node_;
         // If point to be updated is entry point and graph just contains single element then just return.
