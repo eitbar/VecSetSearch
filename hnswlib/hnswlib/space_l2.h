@@ -347,279 +347,6 @@ static int L2SqrI(const void* __restrict pVect1, const void* __restrict pVect2, 
     return (res);
 }
 
-// SumMax L2
-// static float
-// L2SqrVecSet(const vectorset* q, const vectorset* p){
-//     float sum = 0.0f;
-//     // Iterate over each vector in q
-//     for (size_t i = 0; i < q->vecnum; ++i) {
-//         const float* vec_q = (q->data) + i * (q->dim); // Pointer to the i-th vector in q
-//         float maxDist = 99999.9f; // Start with 0 to find maximum distance
-//         for (size_t j = 0; j < p->vecnum; ++j) {
-//             const float* vec_p = p->data + j * (p->dim); // Pointer to the j-th vector in p
-//             maxDist = std::min(maxDist, L2Sqr(vec_q, vec_p, &((p->dim))));
-//         }
-//         sum += maxDist;
-//     }
-//     return sum / (q->vecnum);
-// }
-
-//SumMax + SumMax L2
-// static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
-//     float sum1 = 0.0f;
-//     float sum2 = 0.0f;
-//     // level = 0;
-//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
-//     #if defined(USE_AVX512)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
-//     #elif defined(USE_AVX)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
-//     #else 
-//     L2Sqrfunc_ = L2Sqr;
-//     #endif
-
-//     // 根据 level 参数选择不同数量的向量进行计算，并确保至少为 1
-//     size_t q_vecnum = std::max(static_cast<size_t>(1), q->vecnum / (1 << level));
-//     size_t p_vecnum = std::max(static_cast<size_t>(1), p->vecnum / (1 << level));
-
-//     //#pragma omp parallel for num_threads(4) reduction(+:sum1)
-//     #pragma omp simd reduction(+:sum1)
-//     for (size_t i = 0; i < q_vecnum; ++i) {
-//         const float* vec_q = q->data + i * (level + 1) * q->dim;
-//         float maxDist = 99999.9f;
-//         for (size_t j = 0; j < p_vecnum; ++j) {
-//             const float* vec_p = p->data + j * p->dim;
-//             float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
-//             maxDist = std::min(maxDist, dist);
-//         }
-//         sum1 += maxDist;
-//     }
-
-
-//     //#pragma omp parallel for num_threads(4) reduction(+:sum2)
-//     #pragma omp simd reduction(+:sum2)
-//     for (size_t i = 0; i < p_vecnum; ++i) {
-//         const float* vec_p = p->data + i * p->dim;
-//         float maxDist = 99999.9f;
-//         for (size_t j = 0; j < q_vecnum; ++j) {
-//             const float* vec_q = q->data + j * q->dim;
-//             float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
-//             maxDist = std::min(maxDist, dist);
-//         }
-//         sum2 += maxDist;
-//     }
-
-//     return (sum1 + sum2) / (q_vecnum + p_vecnum);
-// }
-
-
-// static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int level) {
-//     float sum1 = 0.0f;
-//     float sum2 = 0.0f;
-//     // level = 0;
-//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
-//     #if defined(USE_AVX512)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
-//     #elif defined(USE_AVX)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
-//     #else 
-//     L2Sqrfunc_ = L2Sqr;
-//     #endif
-
-//     // 根据 level 参数选择不同数量的向量进行计算，并确保至少为 1
-//     size_t p_vecnum = std::max(static_cast<size_t>(1), p->vecnum / (1 << level));
-
-//     //#pragma omp parallel for num_threads(4) reduction(+:sum1)
-//     #pragma omp simd reduction(+:sum1)
-//     for (size_t i = 0; i < q->vecnum; ++i) {
-//         const float* vec_q = q->data + i * q->dim;
-//         float maxDist = 99999.9f;
-//         for (size_t j = 0; j < p_vecnum; ++j) {
-//             const float* vec_p = p->data + j * p->dim;
-//             float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
-//             maxDist = std::min(maxDist, dist);
-//         }
-//         sum1 += maxDist;
-//     }
-
-
-//     //#pragma omp parallel for num_threads(4) reduction(+:sum2)
-//     #pragma omp simd reduction(+:sum2)
-//     for (size_t i = 0; i < p_vecnum; ++i) {
-//         const float* vec_p = p->data + i * p->dim;
-//         float maxDist = 99999.9f;
-//         for (size_t j = 0; j < q->vecnum; ++j) {
-//             const float* vec_q = q->data + j * q->dim;
-//             float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
-//             maxDist = std::min(maxDist, dist);
-//         }
-//         sum2 += maxDist;
-//     }
-
-//     return (sum1 + sum2) / (q->vecnum + p_vecnum);
-// }
-
-
-//SumMax L2
-// static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
-//     float sum1 = 0.0f;
-//     // level = 0;
-//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
-//     #if defined(USE_AVX512)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
-//     #elif defined(USE_AVX)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
-//     #else 
-//     L2Sqrfunc_ = L2Sqr;
-//     #endif
-
-//     // 根据 level 参数选择不同数量的向量进行计算，并确保至少为 1
-//     size_t q_vecnum = std::max(static_cast<size_t>(1), q->vecnum / (1 << level));
-//     size_t p_vecnum = std::max(static_cast<size_t>(1), p->vecnum / (1 << level));
-
-//     //#pragma omp parallel for num_threads(4) reduction(+:sum1)
-//     #pragma omp simd reduction(+:sum1)
-//     for (size_t i = 0; i < q_vecnum; ++i) {
-//         const float* vec_q = q->data + i * (level + 1) * q->dim;
-//         float maxDist = 99999.9f;
-//         for (size_t j = 0; j < p_vecnum; ++j) {
-//             const float* vec_p = p->data + j * p->dim;
-//             float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
-//             maxDist = std::min(maxDist, dist);
-//         }
-//         sum1 += maxDist;
-//     }
-
-//     return sum1;
-// }
-
-
-// static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int level) {
-//     float sum1 = 0.0f;
-//     // level = 0;
-//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
-//     #if defined(USE_AVX512)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
-//     #elif defined(USE_AVX)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
-//     #else 
-//     L2Sqrfunc_ = L2Sqr;
-//     #endif
-
-//     // 根据 level 参数选择不同数量的向量进行计算，并确保至少为 1
-//     size_t p_vecnum = std::max(static_cast<size_t>(1), p->vecnum / (1 << level));
-
-//     //#pragma omp parallel for num_threads(4) reduction(+:sum1)
-//     #pragma omp simd reduction(+:sum1)
-//     for (size_t i = 0; i < q->vecnum; ++i) {
-//         const float* vec_q = q->data + i * q->dim;
-//         float maxDist = 99999.9f;
-//         for (size_t j = 0; j < p_vecnum; ++j) {
-//             const float* vec_p = p->data + j * p->dim;
-//             float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
-//             maxDist = std::min(maxDist, dist);
-//         }
-//         sum1 += maxDist;
-//     }
-
-//     return sum1;
-// }
-
-// new bi SumMax L2
-// static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
-//     float sum1 = 0.0f;
-//     float sum2 = 0.0f;
-//     // level = 0;
-//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
-//     #if defined(USE_AVX512)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
-//     #elif defined(USE_AVX)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
-//     #else 
-//     L2Sqrfunc_ = L2Sqr;
-//     #endif
-
-//     // 根据 level 参数选择不同数量的向量进行计算，并确保至少为 1
-//     size_t q_vecnum = std::max(static_cast<size_t>(1), q->vecnum / (1 << level));
-//     size_t p_vecnum = std::max(static_cast<size_t>(1), p->vecnum / (1 << level));
-
-//     //#pragma omp parallel for num_threads(4) reduction(+:sum1)
-//     #pragma omp simd reduction(+:sum1)
-//     for (size_t i = 0; i < q_vecnum; ++i) {
-//         const float* vec_q = q->data + i * (level + 1) * q->dim;
-//         float maxDist = 99999.9f;
-//         for (size_t j = 0; j < p_vecnum; ++j) {
-//             const float* vec_p = p->data + j * p->dim;
-//             float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
-//             maxDist = std::min(maxDist, dist);
-//         }
-//         sum1 += maxDist;
-//     }
-
-
-//     //#pragma omp parallel for num_threads(4) reduction(+:sum2)
-//     #pragma omp simd reduction(+:sum2)
-//     for (size_t i = 0; i < p_vecnum; ++i) {
-//         const float* vec_p = p->data + i * p->dim;
-//         float maxDist = 99999.9f;
-//         for (size_t j = 0; j < q_vecnum; ++j) {
-//             const float* vec_q = q->data + j * q->dim;
-//             float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
-//             maxDist = std::min(maxDist, dist);
-//         }
-//         sum2 += maxDist;
-//     }
-
-//     return sum1 / q_vecnum + sum2 / p_vecnum;
-// }
-
-
-// static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int level) {
-//     float sum1 = 0.0f;
-//     float sum2 = 0.0f;
-//     // level = 0;
-//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
-//     #if defined(USE_AVX512)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
-//     #elif defined(USE_AVX)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
-//     #else 
-//     L2Sqrfunc_ = L2Sqr;
-//     #endif
-
-//     // 根据 level 参数选择不同数量的向量进行计算，并确保至少为 1
-//     size_t p_vecnum = std::max(static_cast<size_t>(1), p->vecnum / (1 << level));
-
-//     //#pragma omp parallel for num_threads(4) reduction(+:sum1)
-//     #pragma omp simd reduction(+:sum1)
-//     for (size_t i = 0; i < q->vecnum; ++i) {
-//         const float* vec_q = q->data + i * q->dim;
-//         float maxDist = 99999.9f;
-//         for (size_t j = 0; j < p_vecnum; ++j) {
-//             const float* vec_p = p->data + j * p->dim;
-//             float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
-//             maxDist = std::min(maxDist, dist);
-//         }
-//         sum1 += maxDist;
-//     }
-
-//     //#pragma omp parallel for num_threads(4) reduction(+:sum2)
-//     #pragma omp simd reduction(+:sum2)
-//     for (size_t i = 0; i < p_vecnum; ++i) {
-//         const float* vec_p = p->data + i * p->dim;
-//         float maxDist = 99999.9f;
-//         for (size_t j = 0; j < q->vecnum; ++j) {
-//             const float* vec_q = q->data + j * q->dim;
-//             float dist = L2Sqrfunc_(vec_p, vec_q, &q->dim);
-//             maxDist = std::min(maxDist, dist);
-//         }
-//         sum2 += maxDist;
-//     }
-
-//     return sum1 / q->vecnum + sum2 /  p_vecnum;
-// }
-
-// random 版本
 
 static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
     float sum1 = 0.0f;
@@ -920,50 +647,50 @@ static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int leve
 //     return sum1 / a_vecnum + sum2 / b_vecnum;
 // }
 
-// static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vectorset* c, const uint8_t* old_map_ab, const uint8_t* old_map_bc, uint8_t* new_map, int level) {
-//     float sum1 = 0.0f;
-//     float sum2 = 0.0f;
-//     // level = 0;
-//     l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
-//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
-//     #if defined(USE_AVX512)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
-//     #elif defined(USE_AVX)
-//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
-//     #else 
-//     L2Sqrfunc_ = L2Sqr;
-//     #endif
-//     size_t a_vecnum = std::min(a->vecnum, (size_t)120);
-//     size_t b_vecnum = std::min(b->vecnum, (size_t)120);
-//     size_t c_vecnum = std::min(c->vecnum, (size_t)120);
-//     std::vector<std::vector<float>> dist_matrix(a_vecnum, std::vector<float>(c_vecnum));
+static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vectorset* c, const uint8_t* old_map_ab, const uint8_t* old_map_bc, uint8_t* new_map, int level) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    // level = 0;
+    l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
+    float (*L2Sqrfunc_)(const void*, const void*, const void*);
+    #if defined(USE_AVX512)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    #elif defined(USE_AVX)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    #else 
+    L2Sqrfunc_ = L2Sqr;
+    #endif
+    size_t a_vecnum = std::min(a->vecnum, (size_t)120);
+    size_t b_vecnum = std::min(b->vecnum, (size_t)120);
+    size_t c_vecnum = std::min(c->vecnum, (size_t)120);
+    // std::vector<std::vector<float>> dist_matrix(a_vecnum, std::vector<float>(c_vecnum));
 
-//     #pragma omp simd reduction(+:sum1)
-//     for (size_t i = 0; i < a_vecnum; ++i) {
-//         const float* vec_a = a->data + i * a->dim;
-//         const float* vec_c = c->data + old_map_bc[old_map_ab[i * 5] * 5] * c->dim;
-//         float dist = L2Sqrfunc_(vec_a, vec_c, &a->dim);
-//         new_map[i * 5] = old_map_bc[old_map_ab[i * 5] * 5];
-//         sum1 += dist;
-//     }
+    #pragma omp simd reduction(+:sum1)
+    for (size_t i = 0; i < a_vecnum; ++i) {
+        const float* vec_a = a->data + i * a->dim;
+        const float* vec_c = c->data + old_map_bc[old_map_ab[i * 10] * 10] * c->dim;
+        float dist = L2Sqrfunc_(vec_a, vec_c, &a->dim);
+        new_map[i * 10] = old_map_bc[old_map_ab[i * 10] * 10];
+        sum1 += dist;
+    }
 
-//     #pragma omp simd reduction(+:sum2)
-//     for (size_t i = 0; i < c_vecnum; ++i) {
-//         const float* vec_c = c->data + i * c->dim;
-//         const float* vec_a = a->data + old_map_ab[120 * 5 + old_map_bc[120 * 5 + i * 5] * 5] * a->dim;
-//         float dist = L2Sqrfunc_(vec_c, vec_a, &c->dim);
-//         new_map[i * 5 + 120 * 5] = old_map_ab[old_map_bc[i * 5 + 120 * 5] * 5 + 120 * 5];
-//         sum2 += dist;
-//     }
-//     return sum1 / a_vecnum + sum2 / c_vecnum;
-// }
+    #pragma omp simd reduction(+:sum2)
+    for (size_t i = 0; i < c_vecnum; ++i) {
+        const float* vec_c = c->data + i * c->dim;
+        const float* vec_a = a->data + old_map_ab[120 * 10 + old_map_bc[120 * 10 + i * 10] * 10] * a->dim;
+        float dist = L2Sqrfunc_(vec_c, vec_a, &c->dim);
+        new_map[i * 10 + 120 * 10] = old_map_ab[old_map_bc[i * 10 + 120 * 10] * 10 + 120 * 10];
+        sum2 += dist;
+    }
+    return sum1 / a_vecnum + sum2 / c_vecnum;
+}
 
 static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* new_map, int level) {
     float sum1 = 0.0f;
     float sum2 = 0.0f;
     // level = 0;
     l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
-    uint8_t fineEdgeTopk = 5;
+    uint8_t fineEdgeTopk = 10;
     uint8_t fineEdgeMaxlen = 120;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
@@ -988,55 +715,259 @@ static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* ne
         }
     }
 
-    // std::cout << (u_int16_t)a_vecnum << " " << (u_int16_t)b_vecnum << std::endl;
+
     #pragma omp simd reduction(+:sum1)        
     for (uint8_t i = 0; i < a_vecnum; ++i) {
         float maxDist = 99999.9f;
-        std::priority_queue<std::pair<float, uint8_t>> pq;
         for (uint8_t j = 0; j < b_vecnum; ++j) {
-            if (pq.size() < fineEdgeTopk) {
-                pq.push({dist_matrix[i][j], j});
-            } else if (dist_matrix[i][j] < pq.top().first) {
-                pq.pop();
-                pq.push({dist_matrix[i][j], j});
+            if (dist_matrix[i][j] < maxDist) {
+                new_map[i * fineEdgeTopk] = j;
+                maxDist = dist_matrix[i][j];
             }
-        }
-        uint8_t j = pq.size();
-        while (!pq.empty()) {
-            j -= 1;
-            if (pq.size() == 1) {
-                maxDist = pq.top().first;
-            }
-            new_map[i * fineEdgeTopk + j] = pq.top().second;
-            // std::cout << (u_int16_t)i << " " << (u_int16_t)j << " " << pq.top().first << " "  << (u_int16_t) pq.top().second << std::endl;
-            pq.pop();
         }
         sum1 += maxDist;
     }
-
-    #pragma omp simd reduction(+:sum2)  
+    #pragma omp simd reduction(+:sum2)   
     for (uint8_t i = 0; i < b_vecnum; ++i) {
         float maxDist = 99999.9f;
-        std::priority_queue<std::pair<float, uint8_t>> pq;
         for (uint8_t j = 0; j < a_vecnum; ++j) {
-            if (pq.size() < fineEdgeTopk) {
-                pq.push({dist_matrix[j][i], j});
-            } else if (dist_matrix[j][i] < pq.top().first) {
-                pq.pop();
-                pq.push({dist_matrix[j][i], j});
+            if (dist_matrix[j][i] < maxDist) {
+                new_map[i * fineEdgeTopk + 120 * fineEdgeTopk] = j;
+                maxDist = dist_matrix[j][i];
             }
-        }
-        uint8_t j = pq.size();
-        while (!pq.empty()) {
-            j -= 1;
-            if (pq.size() == 1) {
-                maxDist = pq.top().first;
-            }
-            new_map[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + j] = pq.top().second;
-            // std::cout << (u_int16_t)i << " " << (u_int16_t)j << " " << pq.top().first << " "  << (u_int16_t) pq.top().second << std::endl;
-            pq.pop();
         }
         sum2 += maxDist;
+    }
+
+    // // std::cout << (u_int16_t)a_vecnum << " " << (u_int16_t)b_vecnum << std::endl;
+    // #pragma omp simd reduction(+:sum1)
+    // for (uint8_t i = 0; i < a_vecnum; ++i) {
+    //     float top_dists[fineEdgeTopk];   // 存储前 5 个最小距离
+    //     uint8_t top_indices[fineEdgeTopk]; // 存储前 5 个对应的索引
+
+    //     // 初始化为最大值
+    //     for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
+    //         top_dists[k] = 99999.9f;
+    //         top_indices[k] = 255; // 255 表示无效索引
+    //     }
+
+    //     // 遍历 c_vecnum，更新 top_dists 和 top_indices
+    //     for (uint8_t j = 0; j < b_vecnum; ++j) {
+    //         float dist = dist_matrix[i][j];
+
+    //         // 查找当前距离是否进入前 5 名
+    //         if (dist < top_dists[fineEdgeTopk - 1]) {
+    //             uint8_t pos = fineEdgeTopk - 1;
+
+    //             // 插入排序更新 top_dists 和 top_indices
+    //             while (pos > 0 && dist < top_dists[pos - 1]) {
+    //                 top_dists[pos] = top_dists[pos - 1];
+    //                 top_indices[pos] = top_indices[pos - 1];
+    //                 pos--;
+    //             }
+
+    //             top_dists[pos] = dist;
+    //             top_indices[pos] = j;
+    //         }
+    //     }
+
+    //     // 保存结果到 new_map
+    //     for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
+    //         new_map[i * fineEdgeTopk + k] = top_indices[k];
+    //     }
+
+    //     // 更新 sum1，累加最大值
+    //     sum1 += top_dists[0];
+    // }
+
+    // #pragma omp simd reduction(+:sum2)
+    // for (uint8_t i = 0; i < b_vecnum; ++i) {
+    //     float top_dists[fineEdgeTopk];      // 存储前 fineEdgeTopk 个最小距离
+    //     uint8_t top_indices[fineEdgeTopk]; // 存储对应的索引
+
+    //     // 初始化为最大值
+    //     for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
+    //         top_dists[k] = 99999.9f;
+    //         top_indices[k] = 255; // 初始化为无效索引
+    //     }
+
+    //     // 遍历 a_vecnum 找到前 fineEdgeTopk 小值
+    //     for (uint8_t j = 0; j < a_vecnum; ++j) {
+    //         float dist = dist_matrix[j][i];
+
+    //         // 检查是否进入前 fineEdgeTopk
+    //         if (dist < top_dists[fineEdgeTopk - 1]) {
+    //             uint8_t pos = fineEdgeTopk - 1;
+
+    //             // 插入排序维护前 fineEdgeTopk 小值
+    //             while (pos > 0 && dist < top_dists[pos - 1]) {
+    //                 top_dists[pos] = top_dists[pos - 1];
+    //                 top_indices[pos] = top_indices[pos - 1];
+    //                 pos--;
+    //             }
+
+    //             top_dists[pos] = dist;
+    //             top_indices[pos] = j;
+    //         }
+    //     }
+
+    //     // 更新 new_map
+    //     for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
+    //         new_map[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + k] = top_indices[k];
+    //     }
+
+    //     // 累加最小距离
+    //     sum2 += top_dists[0];
+    // }
+
+    // for (uint8_t i = 0; i < a_vecnum; i++) {
+    //     assert(new_map[i] < b_vecnum);
+    //     std::cout << (uint16_t) i << " " << (uint16_t) new_map[i] << " " << (uint16_t) b_vecnum << std::endl;
+    // }
+    // for (uint8_t i = 0; i < b_vecnum; i++) {
+    //     assert(new_map[i + 120] < a_vecnum);
+    //     std::cout << (uint16_t) i << " " << (uint16_t) new_map[i + 120] << " " << (uint16_t) a_vecnum << std::endl;
+    // }
+    // std::cout << "===== inner ====" << (uint16_t) a_vecnum << " " << (uint16_t) b_vecnum << std::endl;
+    return sum1 / a_vecnum + sum2 / b_vecnum;
+}
+
+
+static float L2SqrVecSetInitPreCalc(const vectorset* a, const vectorset* b, uint8_t* new_map, std::vector<std::vector<float>>& dist_matrix, int level) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    // level = 0;
+    l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
+    uint8_t fineEdgeTopk = 10;
+    uint8_t fineEdgeMaxlen = 120;
+    float (*L2Sqrfunc_)(const void*, const void*, const void*);
+    #if defined(USE_AVX512)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    #elif defined(USE_AVX)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    #else 
+    L2Sqrfunc_ = L2Sqr;
+    #endif
+    uint8_t a_vecnum = (uint8_t) std::min(a->vecnum, (size_t)120);
+    uint8_t b_vecnum = (uint8_t) std::min(b->vecnum, (size_t)120);
+
+    // std::vector<std::vector<float>> dist_matrix(a_vecnum, std::vector<float>(b_vecnum));
+    //#pragma omp parallel for num_threads(4) reduction(+:sum1)
+    #pragma omp simd reduction(+:sum1)
+    for (size_t i = 0; i < a_vecnum; ++i) {
+        const float* vec_a = a->data + i * a->dim;
+        for (size_t j = 0; j < b_vecnum; ++j) {
+            if (dist_matrix[i][j] > 900.0) {
+                const float* vec_b = b->data + j * b->dim;
+                float dist = L2Sqrfunc_(vec_a, vec_b, &b->dim);
+                dist_matrix[i][j] = dist;
+            }
+        }
+    }
+
+
+    // #pragma omp simd reduction(+:sum1)        
+    // for (uint8_t i = 0; i < a_vecnum; ++i) {
+    //     float maxDist = 99999.9f;
+    //     for (uint8_t j = 0; j < b_vecnum; ++j) {
+    //         if (dist_matrix[i][j] < maxDist) {
+    //             new_map[i * fineEdgeTopk] = j;
+    //             maxDist = dist_matrix[i][j];
+    //         }
+    //     }
+    //     sum1 += maxDist;
+    // }
+    // #pragma omp simd reduction(+:sum2)   
+    // for (uint8_t i = 0; i < b_vecnum; ++i) {
+    //     float maxDist = 99999.9f;
+    //     for (uint8_t j = 0; j < a_vecnum; ++j) {
+    //         if (dist_matrix[j][i] < maxDist) {
+    //             new_map[i * fineEdgeTopk + 120 * fineEdgeTopk] = j;
+    //             maxDist = dist_matrix[j][i];
+    //         }
+    //     }
+    //     sum2 += maxDist;
+    // }
+    uint8_t topk = 5;
+    // // std::cout << (u_int16_t)a_vecnum << " " << (u_int16_t)b_vecnum << std::endl;
+    #pragma omp simd reduction(+:sum1)
+    for (uint8_t i = 0; i < a_vecnum; ++i) {
+        float top_dists[topk];   // 存储前 5 个最小距离
+        uint8_t top_indices[topk]; // 存储前 5 个对应的索引
+
+        // 初始化为最大值
+        for (uint8_t k = 0; k < topk; ++k) {
+            top_dists[k] = 99999.9f;
+            top_indices[k] = 255; // 255 表示无效索引
+        }
+
+        // 遍历 c_vecnum，更新 top_dists 和 top_indices
+        for (uint8_t j = 0; j < b_vecnum; ++j) {
+            float dist = dist_matrix[i][j];
+
+            // 查找当前距离是否进入前 5 名
+            if (dist < top_dists[topk - 1]) {
+                uint8_t pos = topk - 1;
+
+                // 插入排序更新 top_dists 和 top_indices
+                while (pos > 0 && dist < top_dists[pos - 1]) {
+                    top_dists[pos] = top_dists[pos - 1];
+                    top_indices[pos] = top_indices[pos - 1];
+                    pos--;
+                }
+
+                top_dists[pos] = dist;
+                top_indices[pos] = j;
+            }
+        }
+
+        // 保存结果到 new_map
+        for (uint8_t k = 0; k < topk; ++k) {
+            new_map[i * fineEdgeTopk + k] = top_indices[k];
+        }
+
+        // 更新 sum1，累加最大值
+        sum1 += top_dists[0];
+    }
+
+    #pragma omp simd reduction(+:sum2)
+    for (uint8_t i = 0; i < b_vecnum; ++i) {
+        float top_dists[topk];      // 存储前 fineEdgeTopk 个最小距离
+        uint8_t top_indices[topk]; // 存储对应的索引
+
+        // 初始化为最大值
+        for (uint8_t k = 0; k < topk; ++k) {
+            top_dists[k] = 99999.9f;
+            top_indices[k] = 255; // 初始化为无效索引
+        }
+
+        // 遍历 a_vecnum 找到前 fineEdgeTopk 小值
+        for (uint8_t j = 0; j < a_vecnum; ++j) {
+            float dist = dist_matrix[j][i];
+
+            // 检查是否进入前 fineEdgeTopk
+            if (dist < top_dists[topk - 1]) {
+                uint8_t pos = topk - 1;
+
+                // 插入排序维护前 fineEdgeTopk 小值
+                while (pos > 0 && dist < top_dists[pos - 1]) {
+                    top_dists[pos] = top_dists[pos - 1];
+                    top_indices[pos] = top_indices[pos - 1];
+                    pos--;
+                }
+
+                top_dists[pos] = dist;
+                top_indices[pos] = j;
+            }
+        }
+
+        // 更新 new_map
+        for (uint8_t k = 0; k < topk; ++k) {
+            new_map[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + k] = top_indices[k];
+        }
+
+        // 累加最小距离
+        sum2 += top_dists[0];
     }
 
     // for (uint8_t i = 0; i < a_vecnum; i++) {
@@ -1051,7 +982,195 @@ static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* ne
     return sum1 / a_vecnum + sum2 / b_vecnum;
 }
 
-static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vectorset* c, const uint8_t* old_map_ab, const uint8_t* old_map_bc, uint8_t* new_map, int level) {
+
+// static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vectorset* c, const uint8_t* old_map_ab, const uint8_t* old_map_bc, uint8_t* new_map, int level) {
+//     l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
+//     float sum1 = 0.0f;
+//     float sum2 = 0.0f;
+//     // level = 0;
+    
+//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
+//     #if defined(USE_AVX512)
+//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+//     #elif defined(USE_AVX)
+//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+//     #else 
+//     L2Sqrfunc_ = L2Sqr;
+//     #endif
+//     uint8_t a_vecnum = (uint8_t) std::min(a->vecnum, (size_t)120);
+//     uint8_t b_vecnum = (uint8_t) std::min(b->vecnum, (size_t)120);
+//     uint8_t c_vecnum = (uint8_t) std::min(c->vecnum, (size_t)120);
+//     std::vector<std::vector<float>> dist_matrix(a_vecnum, std::vector<float>(c_vecnum));
+
+//     uint8_t fineEdgeTopk = 10;
+//     uint8_t fineEdgeMaxlen = 120;
+//     #pragma omp simd reduction(+:sum1)
+//     for (size_t i = 0; i < a_vecnum; ++i) {
+//         for (size_t j = 0; j < c_vecnum; ++j) {
+//             dist_matrix[i][j] = 9999.0;
+//         }
+//     }
+//     // std::cout << (u_int16_t)a_vecnum << " " << (u_int16_t)b_vecnum << " " << (u_int16_t)c_vecnum << std::endl;
+//     #pragma omp simd reduction(+:sum1)
+//     for (size_t i = 0; i < a_vecnum; ++i) {
+//         for (size_t j = 0; j < 1; j++) {
+//             for (size_t k = 0; k < 1; k++) {
+//                 size_t c_ind = (size_t) old_map_bc[old_map_ab[i * fineEdgeTopk + j] * fineEdgeTopk + k];
+//                 // uint16_t c_ind = (uint16_t) old_map_bc[old_map_ab[i]];
+//                 // std::cout << c_ind << " " << c_vecnum << std::endl;
+//                 // assert(c_ind < c_vecnum);
+//                 // std::cout << (u_int16_t)i << " " << (u_int16_t)old_map_ab[i * fineEdgeTopk + j] << " " << (u_int16_t)c_ind << std::endl;
+//                 if (dist_matrix[i][c_ind] > 9000.0) {
+//                     const float* vec_a = a->data + i * a->dim;
+//                     const float* vec_c = c->data + c_ind * c->dim;
+//                     dist_matrix[i][c_ind] = L2Sqrfunc_(vec_a, vec_c, &a->dim);
+//                 } 
+//             }
+//         }
+//     }
+
+//     #pragma omp simd reduction(+:sum2)
+//     for (size_t i = 0; i < c_vecnum; ++i) {
+//         for (size_t j = 0; j < 1; j++) {
+//             for (size_t k = 0; k < 1; k++) {
+//                 // size_t a_ind = (size_t)old_map_ab[old_map_bc[i + 120] + 120];
+//                 size_t a_ind = (size_t) old_map_ab[old_map_bc[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + j] * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + k];
+//                 // std::cout << (u_int16_t) i << " " << (u_int16_t) old_map_bc[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + j] << " " << (u_int16_t) a_ind << std::endl;
+//                 if (dist_matrix[a_ind][i] > 9000.0) {
+//                     const float* vec_a = a->data + a_ind * a->dim;
+//                     const float* vec_c = c->data + i * c->dim;
+//                     dist_matrix[a_ind][i] = L2Sqrfunc_(vec_a, vec_c, &a->dim);
+//                 } 
+//             }
+//         }
+//     }
+
+//     // for (uint8_t i = 0; i < a_vecnum; i++) {
+//     //     assert(old_map_ab[i] < b_vecnum);
+//     // }
+//     // for (uint8_t i = 0; i < b_vecnum; i++) {
+//     //     assert(old_map_bc[i] < c_vecnum);
+//     // }
+
+//     // for (uint8_t i = 0; i < b_vecnum; i++) {
+//     //     assert(old_map_ab[120 + i] < a_vecnum);
+//     // }
+//     // for (uint8_t i = 0; i < c_vecnum; i++) {
+//     //     assert(old_map_bc[120 + i] < b_vecnum);
+//     // }
+
+//     // #pragma omp simd reduction(+:sum1)
+//     // for (size_t i = 0; i < a_vecnum; ++i) {
+//     //     const float* vec_a = a->data + i * a->dim;
+//     //     const float* vec_c = c->data + old_map_bc[old_map_ab[i]] * c->dim;
+//     //     float dist = L2Sqrfunc_(vec_a, vec_c, &a->dim);
+//     //     //dist_matrix[i][old_map_bc[old_map_ab[i]]] = dist;
+//     //     new_map[i] = old_map_bc[old_map_ab[i]];
+//     //     sum1 += dist;
+//     // }
+
+//     // #pragma omp simd reduction(+:sum2)
+//     // for (size_t i = 0; i < c_vecnum; ++i) {
+//     //     const float* vec_c = c->data + i * c->dim;
+//     //     const float* vec_a = a->data + old_map_ab[120 + old_map_bc[120 + i]] * a->dim;
+//     //     float dist = L2Sqrfunc_(vec_c, vec_a, &c->dim);
+//     //     // assert (old_map_ab[120 + old_map_bc[120 + i]] < a_vecnum);
+//     //     //dist_matrix[old_map_ab[120 + old_map_bc[120 + i]]][i] = dist;
+//     //     new_map[120 + i] = old_map_ab[120 + old_map_bc[120 + i]];
+//     //     sum2 += dist;
+//     // }    
+
+//     // for (uint8_t i = 0; i < a_vecnum; i++) {
+//     //     assert(new_map[i] < c_vecnum);
+//     // }
+//     // for (uint8_t i = 0; i < c_vecnum; i++) {
+//     //     assert(new_map[i + 120] < a_vecnum);
+//     // }
+//     // std::cout << "ca" << std::endl;
+//     #pragma omp simd reduction(+:sum1)
+//     for (uint8_t i = 0; i < a_vecnum; ++i) {
+//         float top_dists[fineEdgeTopk];   // 存储前 5 个最小距离
+//         uint8_t top_indices[fineEdgeTopk]; // 存储前 5 个对应的索引
+
+//         // 初始化为最大值
+//         for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
+//             top_dists[k] = 99999.9f;
+//             top_indices[k] = 255; // 255 表示无效索引
+//         }
+
+//         // 遍历 c_vecnum，更新 top_dists 和 top_indices
+//         for (uint8_t j = 0; j < c_vecnum; ++j) {
+//             float dist = dist_matrix[i][j];
+
+//             // 查找当前距离是否进入前 5 名
+//             if (dist < top_dists[fineEdgeTopk - 1]) {
+//                 uint8_t pos = fineEdgeTopk - 1;
+
+//                 // 插入排序更新 top_dists 和 top_indices
+//                 while (pos > 0 && dist < top_dists[pos - 1]) {
+//                     top_dists[pos] = top_dists[pos - 1];
+//                     top_indices[pos] = top_indices[pos - 1];
+//                     pos--;
+//                 }
+
+//                 top_dists[pos] = dist;
+//                 top_indices[pos] = j;
+//             }
+//         }
+
+//         // 保存结果到 new_map
+//         for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
+//             new_map[i * fineEdgeTopk + k] = top_indices[k];
+//         }
+
+//         // 更新 sum1，累加最大值
+//         sum1 += top_dists[0];
+//     }
+
+//     #pragma omp simd reduction(+:sum2)
+//     for (uint8_t i = 0; i < c_vecnum; ++i) {
+//         float top_dists[fineEdgeTopk];      // 存储前 fineEdgeTopk 个最小距离
+//         uint8_t top_indices[fineEdgeTopk]; // 存储对应的索引
+
+//         // 初始化为最大值
+//         for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
+//             top_dists[k] = 99999.9f;
+//             top_indices[k] = 255; // 初始化为无效索引
+//         }
+
+//         // 遍历 a_vecnum 找到前 fineEdgeTopk 小值
+//         for (uint8_t j = 0; j < a_vecnum; ++j) {
+//             float dist = dist_matrix[j][i];
+
+//             // 检查是否进入前 fineEdgeTopk
+//             if (dist < top_dists[fineEdgeTopk - 1]) {
+//                 uint8_t pos = fineEdgeTopk - 1;
+
+//                 // 插入排序维护前 fineEdgeTopk 小值
+//                 while (pos > 0 && dist < top_dists[pos - 1]) {
+//                     top_dists[pos] = top_dists[pos - 1];
+//                     top_indices[pos] = top_indices[pos - 1];
+//                     pos--;
+//                 }
+
+//                 top_dists[pos] = dist;
+//                 top_indices[pos] = j;
+//             }
+//         }
+
+//         // 更新 new_map
+//         for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
+//             new_map[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + k] = top_indices[k];
+//         }
+
+//         // 累加最小距离
+//         sum2 += top_dists[0];
+//     }
+//     // std::cout << pq.size() << std::endl;
+//     return sum1 / a_vecnum + sum2 / c_vecnum;
+// }
+
+static float L2SqrVecSetMapCalc(const vectorset* a, const vectorset* b, const vectorset* c, const uint8_t* old_map_ab, const uint8_t* old_map_bc,  std::vector<std::vector<float>>& dist_matrix, int level) {
     l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
     float sum1 = 0.0f;
     float sum2 = 0.0f;
@@ -1068,9 +1187,8 @@ static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vector
     uint8_t a_vecnum = (uint8_t) std::min(a->vecnum, (size_t)120);
     uint8_t b_vecnum = (uint8_t) std::min(b->vecnum, (size_t)120);
     uint8_t c_vecnum = (uint8_t) std::min(c->vecnum, (size_t)120);
-    std::vector<std::vector<float>> dist_matrix(a_vecnum, std::vector<float>(c_vecnum));
 
-    uint8_t fineEdgeTopk = 5;
+    uint8_t fineEdgeTopk = 10;
     uint8_t fineEdgeMaxlen = 120;
     #pragma omp simd reduction(+:sum1)
     for (size_t i = 0; i < a_vecnum; ++i) {
@@ -1082,7 +1200,7 @@ static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vector
     #pragma omp simd reduction(+:sum1)
     for (size_t i = 0; i < a_vecnum; ++i) {
         for (size_t j = 0; j < 1; j++) {
-            for (size_t k = 0; k < 1; k++) {
+            for (size_t k = 0; k < 5; k++) {
                 size_t c_ind = (size_t) old_map_bc[old_map_ab[i * fineEdgeTopk + j] * fineEdgeTopk + k];
                 // uint16_t c_ind = (uint16_t) old_map_bc[old_map_ab[i]];
                 // std::cout << c_ind << " " << c_vecnum << std::endl;
@@ -1100,7 +1218,7 @@ static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vector
     #pragma omp simd reduction(+:sum2)
     for (size_t i = 0; i < c_vecnum; ++i) {
         for (size_t j = 0; j < 1; j++) {
-            for (size_t k = 0; k < 1; k++) {
+            for (size_t k = 0; k < 5; k++) {
                 // size_t a_ind = (size_t)old_map_ab[old_map_bc[i + 120] + 120];
                 size_t a_ind = (size_t) old_map_ab[old_map_bc[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + j] * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + k];
                 // std::cout << (u_int16_t) i << " " << (u_int16_t) old_map_bc[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + j] << " " << (u_int16_t) a_ind << std::endl;
@@ -1157,88 +1275,24 @@ static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vector
     // std::cout << "ca" << std::endl;
     #pragma omp simd reduction(+:sum1)
     for (uint8_t i = 0; i < a_vecnum; ++i) {
-        float top_dists[fineEdgeTopk];   // 存储前 5 个最小距离
-        uint8_t top_indices[fineEdgeTopk]; // 存储前 5 个对应的索引
-
-        // 初始化为最大值
-        for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
-            top_dists[k] = 99999.9f;
-            top_indices[k] = 255; // 255 表示无效索引
-        }
-
-        // 遍历 c_vecnum，更新 top_dists 和 top_indices
+        float maxDist = 99999.9f;
         for (uint8_t j = 0; j < c_vecnum; ++j) {
-            float dist = dist_matrix[i][j];
-
-            // 查找当前距离是否进入前 5 名
-            if (dist < top_dists[fineEdgeTopk - 1]) {
-                uint8_t pos = fineEdgeTopk - 1;
-
-                // 插入排序更新 top_dists 和 top_indices
-                while (pos > 0 && dist < top_dists[pos - 1]) {
-                    top_dists[pos] = top_dists[pos - 1];
-                    top_indices[pos] = top_indices[pos - 1];
-                    pos--;
-                }
-
-                top_dists[pos] = dist;
-                top_indices[pos] = j;
-            }
+            maxDist = std::min(maxDist, dist_matrix[i][j]);
         }
-
-        // 保存结果到 new_map
-        for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
-            new_map[i * fineEdgeTopk + k] = top_indices[k];
-        }
-
-        // 更新 sum1，累加最大值
-        sum1 += top_dists[0];
+        sum1 += maxDist;
     }
 
     #pragma omp simd reduction(+:sum2)
     for (uint8_t i = 0; i < c_vecnum; ++i) {
-        float top_dists[fineEdgeTopk];      // 存储前 fineEdgeTopk 个最小距离
-        uint8_t top_indices[fineEdgeTopk]; // 存储对应的索引
-
-        // 初始化为最大值
-        for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
-            top_dists[k] = 99999.9f;
-            top_indices[k] = 255; // 初始化为无效索引
-        }
-
-        // 遍历 a_vecnum 找到前 fineEdgeTopk 小值
+        float maxDist = 99999.9f;
         for (uint8_t j = 0; j < a_vecnum; ++j) {
-            float dist = dist_matrix[j][i];
-
-            // 检查是否进入前 fineEdgeTopk
-            if (dist < top_dists[fineEdgeTopk - 1]) {
-                uint8_t pos = fineEdgeTopk - 1;
-
-                // 插入排序维护前 fineEdgeTopk 小值
-                while (pos > 0 && dist < top_dists[pos - 1]) {
-                    top_dists[pos] = top_dists[pos - 1];
-                    top_indices[pos] = top_indices[pos - 1];
-                    pos--;
-                }
-
-                top_dists[pos] = dist;
-                top_indices[pos] = j;
-            }
+            maxDist = std::min(maxDist, dist_matrix[j][i]);
         }
-
-        // 更新 new_map
-        for (uint8_t k = 0; k < fineEdgeTopk; ++k) {
-            new_map[i * fineEdgeTopk + fineEdgeMaxlen * fineEdgeTopk + k] = top_indices[k];
-        }
-
-        // 累加最小距离
-        sum2 += top_dists[0];
+        sum2 += maxDist;
     }
     // std::cout << pq.size() << std::endl;
     return sum1 / a_vecnum + sum2 / c_vecnum;
 }
-
-
 
 // Hausdorff Distance L2
 // static float

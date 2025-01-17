@@ -656,7 +656,7 @@ int main() {
         solution.load(index_file, VECTOR_DIM, base);
     }
 
-    for (int tmpef = 100; tmpef <= 100; tmpef += 100) {
+    for (int tmpef = 100; tmpef <= 800; tmpef += 100) {
         double total_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
         double total_dataset_bf_recall = 0.0;

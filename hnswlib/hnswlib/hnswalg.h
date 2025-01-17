@@ -38,7 +38,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     int maxlevel_{0};
     int maxLevel_ty=3;
 
-    const int fineEdgeTopk = 5;
+    const int fineEdgeTopk = 10;
     const int fineEdgeMaxlen = 120;
     const int fineEdgeSize = fineEdgeMaxlen * 2 * fineEdgeTopk;
     const int multi_entry_thread_num = 1;
@@ -67,7 +67,9 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     float (*fstdistfunc_)(const vectorset*, const vectorset*, int level) ;
     float (*fstdistfunc4search_)(const vectorset*, const vectorset*, int level) ;
     float (*fstdistfuncMap_)(const vectorset* , const vectorset* , const vectorset* , const uint8_t* , const uint8_t* , uint8_t* , int level);
+    float (*fstdistfuncMapCalc_)(const vectorset* , const vectorset* , const vectorset* , const uint8_t* , const uint8_t* , std::vector<std::vector<float>>&, int level);
     float (*fstdistfuncInit_)(const vectorset* , const vectorset* , uint8_t* , int level);
+    float (*fstdistfuncInitPre_)(const vectorset* , const vectorset* , uint8_t* , std::vector<std::vector<float>>&, int level);
     void *dist_func_param_{nullptr};
 
     mutable std::mutex label_lookup_lock;  // lock for label_lookup_
@@ -118,6 +120,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         fstdistfunc_ = L2SqrVecSet;
         fstdistfuncInit_ = L2SqrVecSetInit;
         fstdistfuncMap_ = L2SqrVecSetMap;
+        fstdistfuncMapCalc_ = L2SqrVecSetMapCalc;
+        fstdistfuncInitPre_ =L2SqrVecSetInitPreCalc;
         fstdistfunc4search_ = L2SqrVecSet4Search;
         dist_func_param_ = s->get_dist_func_param();
         if ( M <= 10000 ) {
@@ -461,8 +465,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     visited_array[candidate_id] = visited_array_tag;
 
                     char *currObj1 = (getDataByInternalId(candidate_id));
-                    uint8_t* mapAC = (uint8_t*)malloc(fineEdgeSize);
-
                     // {
                     //     std::lock_guard<std::mutex> lock(cout_mutex); 
                     //     std::cout << "search ==" << current_node_id << " " << candidate_id << " " << j - 1 << std::endl;
@@ -481,10 +483,13 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     //     assert (flag);
                     //     std::cout << "== MapBC ==" << std::endl;
                     // }
-
-                    dist_t dist = fstdistfuncMap_((vectorset*)data_point, (vectorset*)nodeObj, (vectorset*)currObj1, mapAB, mapBC, mapAC, 0);
-
+                    
+                    // dist_t dist = fstdistfuncMap_((vectorset*)data_point, (vectorset*)nodeObj, (vectorset*)currObj1, mapAB, mapBC, mapAC, 0);
+                    std::vector<std::vector<float>> dist_matrix(((vectorset*)data_point)->vecnum, std::vector<float>(((vectorset*)currObj1)->vecnum));
+                    dist_t dist = fstdistfuncMapCalc_((vectorset*)data_point, (vectorset*)nodeObj, (vectorset*)currObj1, mapAB, mapBC, dist_matrix, 0);
                     bool flag_consider_candidate;
+                    dist = dist * 0.95;
+                    //std::cout << dist << std::endl;
                     if (!bare_bone_search && stop_condition) {
                         flag_consider_candidate = stop_condition->should_consider_candidate(dist, lowerBound);
                     } else {
@@ -493,7 +498,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     // std::cout << flag_consider_candidate << std::endl;
 
                     if (flag_consider_candidate) {
-                        dist = fstdistfuncInit_((vectorset*)data_point, (vectorset*)currObj1, mapAC, 0);
+                        uint8_t* mapAC = (uint8_t*)malloc(fineEdgeSize);
+                        dist = fstdistfuncInitPre_((vectorset*)data_point, (vectorset*)currObj1, mapAC, dist_matrix, 0);
                         candidate_set.emplace(-dist, candidate_id, mapAC);
 #ifdef USE_SSE
                         _mm_prefetch(data_level0_memory_ + std::get<1>(candidate_set.top()) * size_data_per_element_ +
@@ -528,8 +534,6 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                         if (!top_candidates.empty())
                             lowerBound = top_candidates.top().first;
-                    } else {
-                        free(mapAC);
                     }
                 }
             }
@@ -2132,6 +2136,49 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         // std::cout<< cur_element_count << std::endl;
         tableint currObj = enterpoint_node_;
         // std::cout << "? ? ? ?" << std::endl;
+//         uint8_t* mapAB = (uint8_t*)malloc(fineEdgeSize);
+//         dist_t curdist = fstdistfuncInit_((vectorset*)query_data, (vectorset*)getDataByInternalId(currObj), mapAB, 0);
+//         bool changed = true;
+//         while (changed) {
+//             changed = false;
+//             char *nodeObj = (getDataByInternalId(currObj));
+//             int *data = (int *) get_linklist0(currObj);
+//             uint8_t *distancelistl = (uint8_t *) ((tableint *)data + 1 + maxM0_);
+//             size_t size = getListCount((linklistsizeint*)data);
+//             metric_hops++;
+//             metric_distance_computations+=size;
+// #ifdef USE_SSE
+//             _mm_prefetch(data_level0_memory_ + (*(data + 1)) * size_data_per_element_ + offsetData_, _MM_HINT_T0);
+//             _mm_prefetch((char *) (data + 2), _MM_HINT_T0);
+// #endif
+//             uint8_t* new_mapAC = (uint8_t*)malloc(fineEdgeSize);
+//             for (size_t j = 1; j <= size; j++) {
+//                 int candidate_id = *(data + j);
+//                 uint8_t* mapBC = distancelistl + fineEdgeSize * (j - 1);
+// //                    if (candidate_id == 0) continue;
+// #ifdef USE_SSE
+//                 _mm_prefetch(data_level0_memory_ + (*(data + j + 1)) * size_data_per_element_ + offsetData_,
+//                                 _MM_HINT_T0);  ////////////
+// #endif
+//                 char *currObj1 = (getDataByInternalId(candidate_id));
+//                 uint8_t* cand_mapAC = (uint8_t*)malloc(fineEdgeSize);
+//                 dist_t d = fstdistfuncMap_((vectorset*)query_data, (vectorset*)nodeObj, (vectorset*)currObj1, mapAB, mapBC, cand_mapAC, 0);
+//                 // std::cout << d << " " << curdist << std::endl;
+//                 if (d * 0.9 < curdist) {
+//                     curdist = d * 0.9;
+//                     currObj = candidate_id;
+//                     //free(new_mapAC);
+//                     new_mapAC = cand_mapAC;
+//                     changed = true;
+//                 }
+//                 if (changed) {
+//                     //free(mapAB);
+//                     mapAB = new_mapAC;
+//                 }
+//             }
+//         }
+
+
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
         // std::vector<std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>> top_candidate_local(multi_entry_thread_num);
         top_candidates = searchBaseLayerST<true>(currObj, query_data, std::max(ef_, k), isIdAllowed);
