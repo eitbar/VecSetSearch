@@ -578,7 +578,7 @@ int main() {
     );
     bool test_subset = true;
     bool load_bf_from_cache = true;
-    bool rebuild = false;
+    bool rebuild = true;
     int dist_metric = 2;
     int multi_entries_num = 40;
     int multi_entries_range = 100;
