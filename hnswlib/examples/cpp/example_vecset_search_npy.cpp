@@ -17,7 +17,7 @@ constexpr int BASE_VECTOR_SET_MIN = 36;
 constexpr int BASE_VECTOR_SET_MAX = 48;
 constexpr int MSMACRO_TEST_NUMBER = 354;
 constexpr int NUM_BASE_SETS = 25000 * MSMACRO_TEST_NUMBER;
-constexpr int NUM_QUERY_SETS = 100;
+constexpr int NUM_QUERY_SETS = 6980;
 constexpr int QUERY_VECTOR_COUNT = 32;
 constexpr int K = 100;
 
@@ -28,27 +28,42 @@ public:
         base_vectors = base;
     }
 
+
     void search(const vectorset query, int k, std::vector<std::pair<int, float>>& res) const {
         // res.clear();
+        res.clear();
         std::vector<std::pair<float, int>> distances;
-
+        std::priority_queue<std::pair<float, int>> max_heap;
         // Calculate Chamfer distance between query set and each base set
         //std::cout<<"Calc Dis"<<std::endl;
         int base_offset = 0;
         for (size_t i = 0; i < base_vectors.size(); ++i) {
-            if (i % 1000000 == 0) {
-                std::cout << "calc distance for " << i << std::endl;
-            }
+            // if (i % 1000000 == 0) {
+            //     std::cout << "calc distance for " << i << std::endl;
+            // }
             float chamfer_dist = hnswlib::L2SqrVecSet(&query, &base_vectors[i], 0);
-            distances.push_back({chamfer_dist, static_cast<int>(i)});
+            // distances.push_back({chamfer_dist, static_cast<int>(i)});
+            // 如果堆的大小小于 k，直接插入
+            if (max_heap.size() < static_cast<size_t>(k)) {
+                max_heap.emplace(chamfer_dist, static_cast<int>(i));
+            } 
+            // 如果当前距离比堆顶小，替换堆顶
+            else if (chamfer_dist < max_heap.top().first) {
+                max_heap.pop();
+                max_heap.emplace(chamfer_dist, static_cast<int>(i));
+            }
         }
         //std::cout<<"return ans"<<std::endl;
         // Sort distances to find top-k nearest neighbors
-        std::partial_sort(distances.begin(), distances.begin() + k, distances.end());
-        for (int i = 0; i < k; ++i) {
-            res[i] = std::make_pair(distances[i].second, distances[i].first);
+        while (!max_heap.empty()) {
+            res.emplace_back(max_heap.top().second, max_heap.top().first);
+            max_heap.pop();
         }
-        
+
+        // 按距离从小到大排序
+        std::sort(res.begin(), res.end(), [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
+            return a.second < b.second;
+        });
     }
 
 private:
@@ -574,11 +589,14 @@ int main() {
     std::vector<vectorset> query;
     std::vector<std::vector<int>> qrels;
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth(
-        NUM_QUERY_SETS, std::vector<std::pair<int, float>>(K, {0, 0.0f})
+        6980, std::vector<std::pair<int, float>>(1000, {0, 0.0f})
     );
-    bool test_subset = true;
+    std::vector<std::vector<std::pair<int, float>>> bf_ground_truth_cf(
+        6980, std::vector<std::pair<int, float>>(1000, {0, 0.0f})
+    );
+    bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = true;
+    bool rebuild = false;
     int dist_metric = 2;
     int multi_entries_num = 40;
     int multi_entries_range = 100;
@@ -646,6 +664,8 @@ int main() {
     }
     else {
         readGroundTruth(ground_truth_file, bf_ground_truth);
+        readGroundTruth("../examples/caches/ground_truth_single_summax_l2_top100.txt", bf_ground_truth_cf);
+        std::cout<< "load BF Groundtruth Finish!" <<std::endl;
     }
 
     Solution solution;
@@ -656,10 +676,12 @@ int main() {
         solution.load(index_file, VECTOR_DIM, base);
     }
 
-    for (int tmpef = 100; tmpef <= 800; tmpef += 100) {
+    for (int tmpef = 100; tmpef <= 5000; tmpef += 100) {
         double total_recall = 0.0;
+        double total_cf_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
-        double total_dataset_bf_recall = 0.0;
+        double total_wcf_bf_recall = 0.0;
+        double total_cf_bf_recall = 0.0;
         double total_query_time = 0.0;
         double total_enrty_recall_10 = 0.0;
         double total_enrty_recall_30 = 0.0;
@@ -670,6 +692,10 @@ int main() {
         std::cout<<"Processing Queries HNSW"<<std::endl;
         // #pragma omp parallel for schedule(dynamic)
         for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+            double wcf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth[i], qrels[i]);
+            total_wcf_bf_recall += wcf_bf_recall;
+            double cf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth_cf[i], qrels[i]);
+            total_cf_bf_recall += cf_bf_recall;
             std::vector<std::pair<int, float>> solution_indices;
             std::vector<hnswlib::labeltype> entry_points;
             entry_points.resize(multi_entries_num);
@@ -708,6 +734,8 @@ int main() {
             total_query_time += query_time;
             double recall = calculate_recall(solution_indices, bf_ground_truth[i]);
             total_recall += recall;
+            double cf_recall = calculate_recall(solution_indices, bf_ground_truth_cf[i]);
+            total_cf_recall += cf_recall;
             double entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 10);
             total_enrty_recall_10 += entry_recall;
             // if (entry_recall > 0) {
@@ -728,20 +756,19 @@ int main() {
             total_enrty_recall_100 += entry_recall;
             double dataset_hnsw_recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
             total_dataset_hnsw_recall += dataset_hnsw_recall;
-            double dataset_bf_recall = calculate_recall_for_msmacro(bf_ground_truth[i], qrels[i]);
-            total_dataset_bf_recall += dataset_bf_recall;
-            std::cout << "Recall for query set " << i << ": " << recall << " " << dataset_hnsw_recall << " " << dataset_bf_recall << std::endl;
+            std::cout << "Recall for query set " << i << ": " << dataset_hnsw_recall << " | " << recall << " " << wcf_bf_recall << " | " << cf_recall << " " << cf_bf_recall << " " << query_time << std::endl;
         }
 
         // Calculate average recall
-        double average_recall = total_recall / NUM_QUERY_SETS;
-        double average_dataset_hnsw_recall = total_dataset_hnsw_recall / NUM_QUERY_SETS;
-        double average_dataset_bf_recall = total_dataset_bf_recall / NUM_QUERY_SETS;
+        // double average_recall = total_recall / NUM_QUERY_SETS;
+        // double average_dataset_hnsw_recall = total_dataset_hnsw_recall / NUM_QUERY_SETS;
+        // double average_dataset_bf_recall = total_dataset_bf_recall / NUM_QUERY_SETS;
         std::cout << "ef: " << tmpef << std::endl;
-        std::cout << "Average Recall: " << average_recall << std::endl;
-        std::cout << "Average Dataset HNSW Recall: " << average_dataset_hnsw_recall << std::endl;
-        std::cout << "Average Dataset BF Recall: " << average_dataset_bf_recall << std::endl;
-        std::cout << "Average entry recall: " << total_enrty_recall_10/NUM_QUERY_SETS << " " << total_enrty_recall_30/NUM_QUERY_SETS << " " << total_enrty_recall_50/NUM_QUERY_SETS << " " << total_enrty_recall_100/NUM_QUERY_SETS << std::endl;
+        std::cout << "Average Weighted CF BF Recall v.s. dataset label: " << total_wcf_bf_recall/NUM_QUERY_SETS<< std::endl;
+        std::cout << "Average CF BF Recall v.s. dataset label: " << total_cf_bf_recall/NUM_QUERY_SETS << std::endl;
+        std::cout << "Average our method Recall v.s. Weighted CF Brute Force: " << total_recall/NUM_QUERY_SETS << std::endl;
+        std::cout << "Average our method Recall v.s. CF Brute Force: " << total_cf_recall/NUM_QUERY_SETS << std::endl;
+        std::cout << "Average our method recall v.s. dataset label: " << total_dataset_hnsw_recall / NUM_QUERY_SETS << std::endl;
         std::cout << "Average query time: " << total_query_time/NUM_QUERY_SETS << " seconds" << std::endl;
         std::cout << "Average L2Sqr was called " << l2_sqr_call_count.load() / NUM_QUERY_SETS << " times." << std::endl;
         std::cout << "Average L2Vec was called " << l2_vec_call_count.load() / NUM_QUERY_SETS << " times." << std::endl;
