@@ -408,17 +408,17 @@ static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
         sum1 += maxDist;
     }
 
-    //#pragma omp parallel for num_threads(4) reduction(+:sum2)
-    #pragma omp simd reduction(+:sum2)
-    for (size_t i = 0; i < p_vecnum; ++i) {
-        float maxDist = 99999.9f;
-        for (size_t j = 0; j < q_vecnum; ++j) {
-            float dist = dist_matrix[j][i];
-            maxDist = std::min(maxDist, dist);
-        }
-        sum2 += maxDist;
-    }        
-    return sum1 / q_vecnum + sum2 / p_vecnum;
+    // //#pragma omp parallel for num_threads(4) reduction(+:sum2)
+    // #pragma omp simd reduction(+:sum2)
+    // for (size_t i = 0; i < p_vecnum; ++i) {
+    //     float maxDist = 99999.9f;
+    //     for (size_t j = 0; j < q_vecnum; ++j) {
+    //         float dist = dist_matrix[j][i];
+    //         maxDist = std::min(maxDist, dist);
+    //     }
+    //     sum2 += maxDist;
+    // }        
+    return sum1 / q_vecnum;
 }
 
 
@@ -453,17 +453,17 @@ static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int leve
     }
 
     //#pragma omp parallel for num_threads(4) reduction(+:sum2)
-    #pragma omp simd reduction(+:sum2)
-    for (size_t i = 0; i < p_vecnum; ++i) {
-        float maxDist = 99999.9f;
-        for (size_t j = 0; j < q->vecnum; ++j) {
-            float dist = dist_matrix[j][i];
-            maxDist = std::min(maxDist, dist);
-        }
-        sum2 += maxDist;
-    }
+    // #pragma omp simd reduction(+:sum2)
+    // for (size_t i = 0; i < p_vecnum; ++i) {
+    //     float maxDist = 99999.9f;
+    //     for (size_t j = 0; j < q->vecnum; ++j) {
+    //         float dist = dist_matrix[j][i];
+    //         maxDist = std::min(maxDist, dist);
+    //     }
+    //     sum2 += maxDist;
+    // }
 
-    return sum1 / q->vecnum + sum2 /  p_vecnum;
+    return sum1 / q->vecnum;
 }
 
 
@@ -495,15 +495,15 @@ static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vector
         sum1 += dist;
     }
 
-    #pragma omp simd reduction(+:sum2)
-    for (size_t i = 0; i < c_vecnum; ++i) {
-        const float* vec_c = c->data + i * c->dim;
-        const float* vec_a = a->data + old_map_ab[fineEdgeMaxlen + old_map_bc[fineEdgeMaxlen + i]] * a->dim;
-        float dist = L2Sqrfunc_(vec_c, vec_a, &c->dim);
-        new_map[i + fineEdgeMaxlen] = old_map_ab[old_map_bc[i + fineEdgeMaxlen] + fineEdgeMaxlen];
-        sum2 += dist;
-    }
-    return sum1 / a_vecnum + sum2 / c_vecnum;
+    // #pragma omp simd reduction(+:sum2)
+    // for (size_t i = 0; i < c_vecnum; ++i) {
+    //     const float* vec_c = c->data + i * c->dim;
+    //     const float* vec_a = a->data + old_map_ab[fineEdgeMaxlen + old_map_bc[fineEdgeMaxlen + i]] * a->dim;
+    //     float dist = L2Sqrfunc_(vec_c, vec_a, &c->dim);
+    //     new_map[i + fineEdgeMaxlen] = old_map_ab[old_map_bc[i + fineEdgeMaxlen] + fineEdgeMaxlen];
+    //     sum2 += dist;
+    // }
+    return sum1 / a_vecnum;
 }
 // for only top1
 static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* new_map, int level) {
@@ -547,18 +547,18 @@ static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* ne
         }
         sum1 += maxDist;
     }
-    #pragma omp simd reduction(+:sum2)   
-    for (uint8_t i = 0; i < b_vecnum; ++i) {
-        float maxDist = 99999.9f;
-        for (uint8_t j = 0; j < a_vecnum; ++j) {
-            if (dist_matrix[j][i] < maxDist) {
-                new_map[i + fineEdgeMaxlen] = j;
-                maxDist = dist_matrix[j][i];
-            }
-        }
-        sum2 += maxDist;
-    }
-    return sum1 / a_vecnum + sum2 / b_vecnum;
+    // #pragma omp simd reduction(+:sum2)   
+    // for (uint8_t i = 0; i < b_vecnum; ++i) {
+    //     float maxDist = 99999.9f;
+    //     for (uint8_t j = 0; j < a_vecnum; ++j) {
+    //         if (dist_matrix[j][i] < maxDist) {
+    //             new_map[i + fineEdgeMaxlen] = j;
+    //             maxDist = dist_matrix[j][i];
+    //         }
+    //     }
+    //     sum2 += maxDist;
+    // }
+    return sum1 / a_vecnum;
 }
 
 static std::pair<float, float> L2SqrVecSetInitReturn2(const vectorset* a, const vectorset* b, uint8_t* new_map, int level) {
@@ -602,18 +602,18 @@ static std::pair<float, float> L2SqrVecSetInitReturn2(const vectorset* a, const 
         }
         sum1 += maxDist;
     }
-    #pragma omp simd reduction(+:sum2)   
-    for (uint8_t i = 0; i < b_vecnum; ++i) {
-        float maxDist = 99999.9f;
-        for (uint8_t j = 0; j < a_vecnum; ++j) {
-            if (dist_matrix[j][i] < maxDist) {
-                new_map[i + fineEdgeMaxlen] = j;
-                maxDist = dist_matrix[j][i];
-            }
-        }
-        sum2 += maxDist;
-    }
-    return std::make_pair(sum1 / a_vecnum + sum2 / b_vecnum, sum1);
+    // #pragma omp simd reduction(+:sum2)   
+    // for (uint8_t i = 0; i < b_vecnum; ++i) {
+    //     float maxDist = 99999.9f;
+    //     for (uint8_t j = 0; j < a_vecnum; ++j) {
+    //         if (dist_matrix[j][i] < maxDist) {
+    //             new_map[i + fineEdgeMaxlen] = j;
+    //             maxDist = dist_matrix[j][i];
+    //         }
+    //     }
+    //     sum2 += maxDist;
+    // }
+    return std::make_pair(sum1 / a_vecnum, sum1);
 }
 
 
@@ -662,18 +662,18 @@ static float L2SqrVecSetInitPreCalc(const vectorset* a, const vectorset* b, uint
         }
         sum1 += maxDist;
     }
-    #pragma omp simd reduction(+:sum2)   
-    for (uint8_t i = 0; i < b_vecnum; ++i) {
-        float maxDist = 99999.9f;
-        for (uint8_t j = 0; j < a_vecnum; ++j) {
-            if (dist_matrix[j][i] < maxDist) {
-                new_map[i + fineEdgeMaxlen] = j;
-                maxDist = dist_matrix[j][i];
-            }
-        }
-        sum2 += maxDist;
-    }
-    return sum1 / a_vecnum + sum2 / b_vecnum;
+    // #pragma omp simd reduction(+:sum2)   
+    // for (uint8_t i = 0; i < b_vecnum; ++i) {
+    //     float maxDist = 99999.9f;
+    //     for (uint8_t j = 0; j < a_vecnum; ++j) {
+    //         if (dist_matrix[j][i] < maxDist) {
+    //             new_map[i + fineEdgeMaxlen] = j;
+    //             maxDist = dist_matrix[j][i];
+    //         }
+    //     }
+    //     sum2 += maxDist;
+    // }
+    return sum1 / a_vecnum;
 }
 
 static std::pair<float, float> L2SqrVecSetInitPreCalcReturn2(const vectorset* a, const vectorset* b, uint8_t* new_map, std::vector<std::vector<float>>& dist_matrix, int level) {
@@ -719,18 +719,18 @@ static std::pair<float, float> L2SqrVecSetInitPreCalcReturn2(const vectorset* a,
         }
         sum1 += maxDist;
     }
-    #pragma omp simd reduction(+:sum2)   
-    for (uint8_t i = 0; i < b_vecnum; ++i) {
-        float maxDist = 99999.9f;
-        for (uint8_t j = 0; j < a_vecnum; ++j) {
-            if (dist_matrix[j][i] < maxDist) {
-                new_map[i + fineEdgeMaxlen] = j;
-                maxDist = dist_matrix[j][i];
-            }
-        }
-        sum2 += maxDist;
-    }
-    return std::make_pair(sum1 / a_vecnum + sum2 / b_vecnum, sum1);
+    // #pragma omp simd reduction(+:sum2)   
+    // for (uint8_t i = 0; i < b_vecnum; ++i) {
+    //     float maxDist = 99999.9f;
+    //     for (uint8_t j = 0; j < a_vecnum; ++j) {
+    //         if (dist_matrix[j][i] < maxDist) {
+    //             new_map[i + fineEdgeMaxlen] = j;
+    //             maxDist = dist_matrix[j][i];
+    //         }
+    //     }
+    //     sum2 += maxDist;
+    // }
+    return std::make_pair(sum1 / a_vecnum, sum1);
 }
 
 static float L2SqrVecSetMapCalc(const vectorset* a, const vectorset* b, const vectorset* c, const uint8_t* old_map_ab, const uint8_t* old_map_bc,  std::vector<std::vector<float>>& dist_matrix, int level) {
@@ -768,15 +768,15 @@ static float L2SqrVecSetMapCalc(const vectorset* a, const vectorset* b, const ve
         } 
     }
 
-    #pragma omp simd reduction(+:sum2)
-    for (size_t i = 0; i < c_vecnum; ++i) {
-        size_t a_ind = (size_t) old_map_ab[old_map_bc[i + fineEdgeMaxlen] + fineEdgeMaxlen];
-        if (dist_matrix[a_ind][i] > 9000.0) {
-            const float* vec_a = a->data + a_ind * a->dim;
-            const float* vec_c = c->data + i * c->dim;
-            dist_matrix[a_ind][i] = L2Sqrfunc_(vec_a, vec_c, &a->dim);
-        } 
-    }
+    // #pragma omp simd reduction(+:sum2)
+    // for (size_t i = 0; i < c_vecnum; ++i) {
+    //     size_t a_ind = (size_t) old_map_ab[old_map_bc[i + fineEdgeMaxlen] + fineEdgeMaxlen];
+    //     if (dist_matrix[a_ind][i] > 9000.0) {
+    //         const float* vec_a = a->data + a_ind * a->dim;
+    //         const float* vec_c = c->data + i * c->dim;
+    //         dist_matrix[a_ind][i] = L2Sqrfunc_(vec_a, vec_c, &a->dim);
+    //     } 
+    // }
 
     #pragma omp simd reduction(+:sum1)
     for (uint8_t i = 0; i < a_vecnum; ++i) {
@@ -787,16 +787,16 @@ static float L2SqrVecSetMapCalc(const vectorset* a, const vectorset* b, const ve
         sum1 += maxDist;
     }
 
-    #pragma omp simd reduction(+:sum2)
-    for (uint8_t i = 0; i < c_vecnum; ++i) {
-        float maxDist = 99999.9f;
-        for (uint8_t j = 0; j < a_vecnum; ++j) {
-            maxDist = std::min(maxDist, dist_matrix[j][i]);
-        }
-        sum2 += maxDist;
-    }
+    // #pragma omp simd reduction(+:sum2)
+    // for (uint8_t i = 0; i < c_vecnum; ++i) {
+    //     float maxDist = 99999.9f;
+    //     for (uint8_t j = 0; j < a_vecnum; ++j) {
+    //         maxDist = std::min(maxDist, dist_matrix[j][i]);
+    //     }
+    //     sum2 += maxDist;
+    // }
 
-    return sum1 / a_vecnum + sum2 / c_vecnum;
+    return sum1 / a_vecnum;
 }
 
 

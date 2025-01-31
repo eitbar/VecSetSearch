@@ -17,7 +17,7 @@ constexpr int BASE_VECTOR_SET_MIN = 36;
 constexpr int BASE_VECTOR_SET_MAX = 48;
 constexpr int MSMACRO_TEST_NUMBER = 354;
 constexpr int NUM_BASE_SETS = 25000 * MSMACRO_TEST_NUMBER;
-constexpr int NUM_QUERY_SETS = 6980;
+constexpr int NUM_QUERY_SETS = 100;
 constexpr int QUERY_VECTOR_COUNT = 32;
 constexpr int K = 100;
 
@@ -596,8 +596,8 @@ int main() {
     );
     bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = false;
-    int dist_metric = 2;
+    bool rebuild = true;
+    int dist_metric = 1;
     int multi_entries_num = 40;
     int multi_entries_range = 100;
     std::mt19937 gen(42);                    // 使用Mersenne Twister引擎
@@ -617,7 +617,7 @@ int main() {
             index_file = "../examples/localIndex/95k_single_summax_l2.bin";
         } else {
             ground_truth_file = "../examples/caches/ground_truth_single_summax_l2_top100.txt";
-            index_file = "../examples/localIndex/8m_single_summax_l2.bin";
+            index_file = "../examples/localIndex/8m_single_summax_l2_mean.bin";
         }
     } else {
         if (test_subset) {
