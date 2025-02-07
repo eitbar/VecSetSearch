@@ -7,6 +7,7 @@
 #include <omp.h> 
 #include <Eigen/Dense>
 #include <cassert>
+#include "../otlib/EMD.h"
 
 inline std::atomic<int> l2_sqr_call_count(0);
 inline std::atomic<int> l2_vec_call_count(0);
@@ -378,6 +379,131 @@ static float L2SqrVecCF(const vectorset* q, const vectorset* p, int level) {
     return sum1;
 }
 
+// static float L2SqrVecEMD(const vectorset* q, const vectorset* p, int level) {
+//     float sum1 = 0.0f;
+//     float sum2 = 0.0f;
+//     level = 0;
+//     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
+//     float (*L2Sqrfunc_)(const void*, const void*, const void*);
+//     #if defined(USE_AVX512)
+//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+//     #elif defined(USE_AVX)
+//     L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+//     #else 
+//     L2Sqrfunc_ = L2Sqr;
+//     #endif
+//     size_t q_vecnum = q->vecnum;
+//     size_t p_vecnum = p->vecnum ;
+
+//     std::vector<float> aw(q_vecnum);
+//     std::vector<float> av(q_vecnum);
+//     std::vector<float> bw(p_vecnum);
+//     std::vector<float> bv(p_vecnum);
+//     for (int i = 0; i < q_vecnum; i++) {
+//         const float* vec_q = q->data;
+//         av[i] = vec_q[i];
+//         aw[i] = 1.0;
+//     }
+//     for (int i = 0; i < p_vecnum; i++) {
+//         const float* vec_p = p->data;
+//         bv[i] = vec_p[i];
+//         bw[i] = 1.0;
+//     }
+//     double dist = wasserstein(av,aw,bv,bw);
+//     return dist;
+// }
+
+float hungarian_algorithm(const std::vector<std::vector<float>>& cost) {
+    size_t n = cost.size();
+    size_t m = cost[0].size();
+
+    // Labels for the rows and columns
+    std::vector<float> u(n, 0), v(m, 0);
+
+    // Matching from rows to columns
+    std::vector<int> p(m, -1);
+    std::vector<int> way(m, -1);
+
+    // Main loop for the Hungarian algorithm
+    for (size_t i = 0; i < n; ++i) {
+        std::vector<float> min_v(m, std::numeric_limits<float>::infinity());
+        std::vector<bool> used(m, false);
+
+        int j0 = -1;
+        p[0] = i;
+
+        while (true) {
+            j0 = -1;
+            for (size_t j = 0; j < m; ++j) {
+                if (!used[j]) {
+                    float cur = cost[p[j]] [j] - u[p[j]] - v[j];
+                    if (cur < min_v[j]) {
+                        min_v[j] = cur;
+                        way[j] = p[j];
+                        if (min_v[j] < min_v[j0]) {
+                            j0 = j;
+                        }
+                    }
+                }
+            }
+
+            for (size_t j = 0; j < m; ++j) {
+                if (used[j]) {
+                    u[p[j]] += min_v[j];
+                    v[j] -= min_v[j];
+                } else {
+                    min_v[j] -= min_v[j0];
+                }
+            }
+            
+            if (j0 == -1) {
+                break;
+            }
+            p[j0] = i;
+        }
+    }
+
+    float total_cost = 0;
+    for (size_t j = 0; j < m; ++j) {
+        total_cost += cost[p[j]] [j];
+    }
+    return total_cost;
+}
+
+static float L2SqrVecEMD(const vectorset* q, const vectorset* p, int level) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    level = 0;
+    // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
+    float (*L2Sqrfunc_)(const void*, const void*, const void*);
+    #if defined(USE_AVX512)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    #elif defined(USE_AVX)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    #else 
+    L2Sqrfunc_ = L2Sqr;
+    #endif
+    size_t n = q->vecnum;
+    size_t m = p->vecnum ;
+    std::vector<double> dist_flat(n * m);
+    // std::vector<std::vector<double>> dist_matrix(n, std::vector<double>(m));
+    for (size_t i = 0; i < n; ++i) {
+        const float* vec_q = q->data + i * q->dim;
+        for (size_t j = 0; j < m; ++j) {
+            const float* vec_p = p->data + j * p->dim;
+            float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+            dist_flat[i * m + j] = (double)dist;
+        }
+    }
+
+    std::vector<double> a_hist(n, 1.0 / n);
+    std::vector<double> b_hist(m, 1.0 / m);
+    // 计算EMD（匹配后的最小搬运成本）
+    double emd = EMD_wrap_self(n, m, a_hist.data(), b_hist.data(), dist_flat.data(), 100);
+    // std::cout<< emd << std::endl;
+    return (float)emd;
+}
+
 static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
     float sum1 = 0.0f;
     float sum2 = 0.0f;
@@ -505,6 +631,56 @@ static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vector
     // }
     return sum1 / a_vecnum;
 }
+
+// for only top1
+static float L2SqrVecSetInitEMD(const vectorset* a, const vectorset* b, uint8_t* new_map, int level) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    // level = 0;
+    // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
+
+    uint8_t fineEdgeMaxlen = 120;
+    float (*L2Sqrfunc_)(const void*, const void*, const void*);
+    #if defined(USE_AVX512)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    #elif defined(USE_AVX)
+    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    #else 
+    L2Sqrfunc_ = L2Sqr;
+    #endif
+    size_t a_vecnum = (size_t) std::min(a->vecnum, (size_t)fineEdgeMaxlen);
+    size_t b_vecnum = (size_t) std::min(b->vecnum, (size_t)fineEdgeMaxlen);
+
+    std::vector<double> dist_flat(a_vecnum * b_vecnum);
+    // std::vector<std::vector<double>> dist_matrix(n, std::vector<double>(m));
+    #pragma omp simd reduction(+:sum1)
+    for (size_t i = 0; i < a_vecnum; ++i) {
+        const float* vec_q = a->data + i * a->dim;
+        for (size_t j = 0; j < b_vecnum; ++j) {
+            const float* vec_p = b->data + j * b->dim;
+            float dist = L2Sqrfunc_(vec_q, vec_p, &a->dim);
+            dist_flat[i * b_vecnum + j] = (double)dist;
+        }
+    }
+
+    std::vector<double> a_hist(a_vecnum, 1.0 / a_vecnum);
+    std::vector<double> b_hist(b_vecnum, 1.0 / b_vecnum);
+    // 计算EMD（匹配后的最小搬运成本）
+    double emd = EMD_wrap_self(a_vecnum, b_vecnum, a_hist.data(), b_hist.data(), dist_flat.data(), 100);
+
+    #pragma omp simd reduction(+:sum1)        
+    for (size_t i = 0; i < a_vecnum; ++i) {
+        double maxDist = 99999.9f;
+        for (size_t j = 0; j < b_vecnum; ++j) {
+            if (dist_flat[i * b_vecnum + j] < maxDist) {
+                new_map[i] = j;
+                maxDist = dist_flat[i * b_vecnum + j];
+            }
+        }
+    }
+    return (float)emd;
+}
+
 // for only top1
 static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* new_map, int level) {
     float sum1 = 0.0f;

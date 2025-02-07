@@ -11,8 +11,11 @@ project(hnswlib
 include(GNUInstallDirs)
 include(CheckCXXCompilerFlag)
 include_directories(${CMAKE_SOURCE_DIR}/cnpy)
+include_directories(${CMAKE_SOURCE_DIR}/otlib)
 
 add_library(cnpy STATIC ${CMAKE_SOURCE_DIR}/cnpy/cnpy.cpp)
+file(GLOB OT_LIB_SRC ${CMAKE_SOURCE_DIR}/otlib/*.cpp) 
+add_library(otlib STATIC ${OT_LIB_SRC})
 add_library(hnswlib INTERFACE)
 add_library(hnswlib::hnswlib ALIAS hnswlib)
 
@@ -70,6 +73,9 @@ if(HNSWLIB_EXAMPLES)
     target_link_libraries(example_vecset_search PRIVATE cnpy ${ZLIB_LIBRARIES})
     target_link_libraries(example_vecset_search_para PRIVATE cnpy ${ZLIB_LIBRARIES})
     target_link_libraries(example_vecset_search_npy PRIVATE cnpy ${ZLIB_LIBRARIES})
+    target_link_libraries(example_vecset_search PRIVATE otlib ${ZLIB_LIBRARIES}) 
+    target_link_libraries(example_vecset_search_para PRIVATE otlib ${ZLIB_LIBRARIES}) 
+    target_link_libraries(example_vecset_search_npy PRIVATE otlib ${ZLIB_LIBRARIES}) 
 
     # Link Eigen3
     target_link_libraries(example_vecset_search PRIVATE Eigen3::Eigen)

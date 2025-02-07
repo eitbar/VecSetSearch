@@ -67,9 +67,11 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     float (*fstdistfunc_)(const vectorset*, const vectorset*, int level) ;
     float (*fstdistfunc4search_)(const vectorset*, const vectorset*, int level) ;
     float (*fstdistfuncCF)(const vectorset*, const vectorset*, int level) ;
+    float (*fstdistfuncEMD)(const vectorset*, const vectorset*, int level) ;
     float (*fstdistfuncMap_)(const vectorset* , const vectorset* , const vectorset* , const uint8_t* , const uint8_t* , uint8_t* , int level);
     float (*fstdistfuncMapCalc_)(const vectorset* , const vectorset* , const vectorset* , const uint8_t* , const uint8_t* , std::vector<std::vector<float>>&, int level);
     float (*fstdistfuncInit_)(const vectorset* , const vectorset* , uint8_t* , int level);
+    float (*fstdistfuncInitEMD)(const vectorset* , const vectorset* , uint8_t* , int level);
     std::pair<float, float> (*fstdistfuncInit2_)(const vectorset* , const vectorset* , uint8_t* , int level);
     float (*fstdistfuncInitPre_)(const vectorset* , const vectorset* , uint8_t* , std::vector<std::vector<float>>&, int level);
     std::pair<float, float>  (*fstdistfuncInitPre2_) (const vectorset* , const vectorset* , uint8_t* , std::vector<std::vector<float>>&, int level);
@@ -129,6 +131,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         fstdistfuncInitPre2_ = L2SqrVecSetInitPreCalcReturn2;
         fstdistfunc4search_ = L2SqrVecSet4Search;
         fstdistfuncCF = L2SqrVecCF;
+        fstdistfuncEMD = L2SqrVecEMD;
+        fstdistfuncInitEMD = L2SqrVecSetInitEMD;
         dist_func_param_ = s->get_dist_func_param();
         if ( M <= 10000 ) {
             M_ = M;
@@ -798,7 +802,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         if (bare_bone_search || 
             (!isMarkedDeleted(ep_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(ep_id))))) {
             char* ep_data = getDataByInternalId(ep_id);
-            dist_t dist = fstdistfunc4search_((vectorset*)data_point, (vectorset*)ep_data, 0);
+            dist_t dist = L2SqrVecEMD((vectorset*)data_point, (vectorset*)ep_data, 0);
             // dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)ep_data);
             lowerBound = dist;
             top_candidates.emplace(dist, ep_id);
@@ -861,7 +865,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                     char *currObj1 = (getDataByInternalId(candidate_id));
                     // dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)currObj1);
-                    dist_t dist = fstdistfunc4search_((vectorset*)data_point, (vectorset*)currObj1, 0);
+                    dist_t dist = L2SqrVecEMD((vectorset*)data_point, (vectorset*)currObj1, 0);
 
                     bool flag_consider_candidate;
                     if (!bare_bone_search && stop_condition) {
@@ -1143,7 +1147,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
             for (std::pair<dist_t, tableint> second_pair : return_list) {
                 dist_t curdist =
-                        fstdistfunc_((vectorset*)getDataByInternalId(second_pair.second),
+                        fstdistfuncEMD((vectorset*)getDataByInternalId(second_pair.second),
                                         (vectorset*)getDataByInternalId(curent_pair.second), level);
                 if (curdist < dist_to_query) {
                     good = false;
@@ -1246,7 +1250,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     throw std::runtime_error("Possible memory corruption");
                 if (level > element_levels_[selectedNeighbors[idx]])
                     throw std::runtime_error("Trying to make a link on a non-existent level");
-                dist_t tmp = fstdistfuncInit_((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), data_list + fineEdgeSize * idx, 0);
+                dist_t tmp = fstdistfuncInitEMD((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), data_list + fineEdgeSize * idx, 0);
                 // {
                 //     std::lock_guard<std::mutex> lock(cout_mutex); 
                 //     size_t bn = std::min(((vectorset*)getDataByInternalId(cur_c))->vecnum, (size_t)120);
@@ -1303,7 +1307,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             if (!is_cur_c_present) {
                 if (sz_link_list_other < Mcurmax) {
                     data[sz_link_list_other] = cur_c;
-                    dist_t tmp = fstdistfuncInit_((vectorset*)getDataByInternalId(selectedNeighbors[idx]), (vectorset*)getDataByInternalId(cur_c), data_list + fineEdgeSize * sz_link_list_other, 0);
+                    dist_t tmp = fstdistfuncInitEMD((vectorset*)getDataByInternalId(selectedNeighbors[idx]), (vectorset*)getDataByInternalId(cur_c), data_list + fineEdgeSize * sz_link_list_other, 0);
                     // {
                     //     std::lock_guard<std::mutex> lock(cout_mutex); 
                     //     size_t bn = std::min(((vectorset*)getDataByInternalId(selectedNeighbors[idx]))->vecnum, (size_t)120);
@@ -1327,14 +1331,14 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     // finding the "weakest" element to replace it with the new one
                     // dist_t tmp = fstdistfuncInit_((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), data_list + fineEdgeSize * idx, 0);
                 
-                    dist_t d_max = fstdistfunc_((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), level);
+                    dist_t d_max = fstdistfuncEMD((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), level);
                     // Heuristic:
                     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidates;
                     candidates.emplace(d_max, cur_c);
 
                     for (size_t j = 0; j < sz_link_list_other; j++) {
                         candidates.emplace(
-                                fstdistfunc_((vectorset*)getDataByInternalId(data[j]), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), level), data[j]);
+                                fstdistfuncEMD((vectorset*)getDataByInternalId(data[j]), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), level), data[j]);
                     }
 
                     getNeighborsByHeuristic2(candidates, Mcurmax, level);
@@ -1342,7 +1346,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     int indx = 0;
                     while (candidates.size() > 0) {
                         data[indx] = candidates.top().second;
-                        dist_t tmp = fstdistfuncInit_((vectorset*)getDataByInternalId(selectedNeighbors[idx]), (vectorset*)getDataByInternalId(data[indx]), data_list + fineEdgeSize * indx, 0);
+                        dist_t tmp = fstdistfuncInitEMD((vectorset*)getDataByInternalId(selectedNeighbors[idx]), (vectorset*)getDataByInternalId(data[indx]), data_list + fineEdgeSize * indx, 0);
                         // {
                         //     std::lock_guard<std::mutex> lock(cout_mutex); 
                         //     size_t bn = std::min(((vectorset*)getDataByInternalId(selectedNeighbors[idx]))->vecnum, (size_t)120);
