@@ -97,6 +97,9 @@ public:
         alg_hnsw->setEf(ef);
         double start_time = omp_get_wtime();
         std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnFineEdge(&query, k);
+        std::cout << alg_hnsw->metric_hops << ' ' << alg_hnsw->metric_distance_computations << std::endl;
+        alg_hnsw->metric_hops = 0;
+        alg_hnsw->metric_distance_computations = 0;
         for(int i = 0; i < k; i++){
             res.push_back(std::make_pair(result.top().second, result.top().first));
             result.pop();

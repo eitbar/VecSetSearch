@@ -460,10 +460,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             uint8_t *distancelistl = (uint8_t *) ((tableint *)data + 1 + maxM0_);
             size_t size = getListCount((linklistsizeint*)data);
 //                bool cur_node_deleted = isMarkedDeleted(current_node_id);
-            if (collect_metrics) {
-                metric_hops++;
-                metric_distance_computations+=size;
-            }
+            // if (collect_metrics) {
+            metric_hops++;
+            metric_distance_computations+=size;
+            // }
 
 #ifdef USE_SSE
             _mm_prefetch((char *) (visited_array + *(data + 1)), _MM_HINT_T0);
