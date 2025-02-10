@@ -499,7 +499,7 @@ static float L2SqrVecEMD(const vectorset* q, const vectorset* p, int level) {
     std::vector<double> a_hist(n, 1.0 / n);
     std::vector<double> b_hist(m, 1.0 / m);
     // 计算EMD（匹配后的最小搬运成本）
-    double emd = EMD_wrap_self(n, m, a_hist.data(), b_hist.data(), dist_flat.data(), 100);
+    double emd = EMD_wrap_self(n, m, a_hist.data(), b_hist.data(), dist_flat.data(), 1000);
     // std::cout<< emd << std::endl;
     return (float)emd;
 }
@@ -666,7 +666,7 @@ static float L2SqrVecSetInitEMD(const vectorset* a, const vectorset* b, uint8_t*
     std::vector<double> a_hist(a_vecnum, 1.0 / a_vecnum);
     std::vector<double> b_hist(b_vecnum, 1.0 / b_vecnum);
     // 计算EMD（匹配后的最小搬运成本）
-    double emd = EMD_wrap_self(a_vecnum, b_vecnum, a_hist.data(), b_hist.data(), dist_flat.data(), 100);
+    double emd = EMD_wrap_self(a_vecnum, b_vecnum, a_hist.data(), b_hist.data(), dist_flat.data(), 1000);
 
     #pragma omp simd reduction(+:sum1)        
     for (size_t i = 0; i < a_vecnum; ++i) {

@@ -97,9 +97,9 @@ public:
         alg_hnsw->setEf(ef);
         double start_time = omp_get_wtime();
         std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnFineEdge(&query, k);
-        std::cout << alg_hnsw->metric_hops << ' ' << alg_hnsw->metric_distance_computations << std::endl;
-        alg_hnsw->metric_hops = 0;
-        alg_hnsw->metric_distance_computations = 0;
+        // std::cout << alg_hnsw->metric_hops << ' ' << alg_hnsw->metric_distance_computations << std::endl;
+        // alg_hnsw->metric_hops = 0;
+        // alg_hnsw->metric_distance_computations = 0;
         for(int i = 0; i < k; i++){
             res.push_back(std::make_pair(result.top().second, result.top().first));
             result.pop();
@@ -136,7 +136,13 @@ public:
         for(hnswlib::labeltype i = 0; i < base.size(); i++){
             alg_hnsw->loadDataAddress(&base[i], i);            
         }
+        alg_hnsw->getListCountForOutId();
         std::cout << "load time: " << omp_get_wtime() - time << "sec"<<std::endl;
+    }
+
+    void addEdge(hnswlib::labeltype p1, hnswlib::labeltype p2) {
+        alg_hnsw->mutuallyConnectTwoElement(p1, p2);
+        alg_hnsw->mutuallyConnectTwoElement(p2, p1);
     }
 
 private:
@@ -667,7 +673,7 @@ int main() {
     }
     else {
         readGroundTruth(ground_truth_file, bf_ground_truth);
-        readGroundTruth("../examples/caches/ground_truth_single_summax_l2_top100.txt", bf_ground_truth_cf);
+        readGroundTruth("../examples/caches/95k_ground_truth_single_summax_l2_top100.txt", bf_ground_truth_cf);
         std::cout<< "load BF Groundtruth Finish!" <<std::endl;
     }
 
@@ -678,8 +684,14 @@ int main() {
     } else {
         solution.load(index_file, VECTOR_DIM, base);
     }
-
-    for (int tmpef = 100; tmpef <= 1000; tmpef += 100) {
+    // for (int i = 0; i < 10; ++i) {
+    //     for (int j = 0; j < 9; j++) {
+    //         for (int k = 20; k < 10; k++) {
+    //             solution.addEdge(qrels[i][j], qrels[i][k]);
+    //         }
+    //     }
+    // }
+    for (int tmpef = 200; tmpef <= 200; tmpef += 100) {
         double total_recall = 0.0;
         double total_cf_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
@@ -695,6 +707,8 @@ int main() {
         std::cout<<"Processing Queries HNSW"<<std::endl;
         // #pragma omp parallel for schedule(dynamic)
         for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+            // std::cout << hnswlib::L2SqrVecEMD(&query[i], &base[i], 0) << std::endl;
+            // std::cout << hnswlib::L2SqrVecEMD(&base[i], &query[i], 0) << std::endl;
             double wcf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth[i], qrels[i]);
             total_wcf_bf_recall += wcf_bf_recall;
             double cf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth_cf[i], qrels[i]);
@@ -713,18 +727,26 @@ int main() {
             // for (int j = 0; j < multi_entries_num; j++) {
             //     entry_points[j] = bf_ground_truth[i][entry_point_index[j]].first;
             // }
-            for (int j = 0; j < multi_entries_num; j++) {
-                int tmp_ind = dist(gen) % base.size();
-                // while (ground_truth_set.find(tmp_ind) != ground_truth_set.end()) {
-                //     tmp_ind = dist(gen) % base.size();
-                // }
-                entry_points[j] = tmp_ind;
-            }
+
+            // for (int j = 0; j < multi_entries_num; j++) {
+            //     int tmp_ind = dist(gen) % base.size();
+            //     // while (ground_truth_set.find(tmp_ind) != ground_truth_set.end()) {
+            //     //     tmp_ind = dist(gen) % base.size();
+            //     // }
+            //     entry_points[j] = tmp_ind;
+            // }
             // std::cout << bf_ground_truth[i].size() << std::endl;
             // std::cout<<entry_points.size()<<std::endl;
             // double query_time = solution.search(query[i], K, solution_indices);
             // double query_time = solution.searchFromEntries(query[i], K, tmpef, entry_points, solution_indices);
             double query_time = solution.search(query[i], K, tmpef, solution_indices);
+
+            // solution.addEdge(solution_indices[0].first, qrels[i][0]);
+            // for (int k = 0; k < 10; k++) {
+            //     solution.addEdge(solution_indices[k].first, bf_ground_truth[i][k].first);
+            // }
+            // solution_indices.clear();
+            // query_time = solution.search(query[i], K, tmpef, solution_indices);
             // for (int j = 0; j < K; j ++) {
             //     std::cout << solution_indices[j].first << " " << solution_indices[j].second << " ";
             // }
