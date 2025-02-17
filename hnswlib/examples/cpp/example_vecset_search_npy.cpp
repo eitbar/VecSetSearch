@@ -17,7 +17,11 @@ constexpr int BASE_VECTOR_SET_MIN = 36;
 constexpr int BASE_VECTOR_SET_MAX = 48;
 constexpr int MSMACRO_TEST_NUMBER = 354;
 constexpr int NUM_BASE_SETS = 25000 * MSMACRO_TEST_NUMBER;
-int NUM_QUERY_SETS = 6980;
+constexpr long long NUM_BASE_VECTOR_LOTTE = 339419977;
+constexpr int NUM_BASE_SETS_LOTTE = 2428853;
+constexpr int NUM_QUERT_LOTTE = 2930;
+constexpr int LOTTE_TEST_NUMBER = 98;
+int NUM_QUERY_SETS = 2930;
 constexpr int QUERY_VECTOR_COUNT = 32;
 constexpr int K = 100;
 
@@ -345,6 +349,81 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
     std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << " " << qrels.size() << std::endl;
 }
 
+
+
+void load_from_lotte(std::vector<float>& base_data, std::vector<vectorset>& base,
+                       std::vector<float>& query_data, std::vector<vectorset>& query, 
+                       int file_numbers, std::vector<std::vector<int>>& qrels) {
+    long long offset = 0;  
+    long long all_elements = 0;   
+    std::string qembfile_name = "/home/zhoujin/data/lotte_embeddings/pooled/lotte_pooled_dev_query.npy";
+    std::string qrelfile_name = "/home/zhoujin/data/lotte/pooled/dev/qas.search.tsv";    
+
+    for (int i = 0; i < file_numbers; i++) {
+        std::string embfile_name = "/home/zhoujin/data/lotte_embeddings/pooled/encoding" + std::to_string(i) + "_float16.npy";
+        std::string lensfile_name = "/home/zhoujin/data/lotte_embeddings/pooled/doclens" + std::to_string(i) + ".npy";
+        cnpy::NpyArray arr_npy = cnpy::npy_load(embfile_name);
+        cnpy::NpyArray lens_npy = cnpy::npy_load(lensfile_name);
+        uint16_t* raw_vec_data = arr_npy.data<uint16_t>();
+        size_t num_elements = arr_npy.shape[0] * arr_npy.shape[1];
+        // int* lens_data = lens_npy.data<int>();
+        std::complex<int>* lens_data = lens_npy.data<std::complex<int>>();
+        size_t doc_num = lens_npy.shape[0];
+        std::cout << "Processing file " << i << std::endl;
+        // assert (doc_num == 25000);
+        // std::cout << num_elements << std::endl;
+        
+        for (long long i = 0; i < num_elements; ++i) {
+            base_data[all_elements + i] = (static_cast<float>(half_to_float(raw_vec_data[i])));
+        }
+        all_elements += num_elements;
+        
+        for (int i = 0; i < doc_num; ++i) {
+            base.push_back(vectorset(base_data.data() + offset, VECTOR_DIM, lens_data[i].real()));
+            offset += lens_data[i].real() * VECTOR_DIM;
+        }
+    }
+
+    cnpy::NpyArray qembs_npy = cnpy::npy_load(qembfile_name);
+
+    float* raw_qembs_data = qembs_npy.data<float>();
+    size_t num_qembs_elements = NUM_QUERT_LOTTE * qembs_npy.shape[1] * qembs_npy.shape[2];
+    size_t q_num = NUM_QUERT_LOTTE;
+
+    int q_offset = 0;
+    
+    for (size_t i = 0; i < num_qembs_elements; ++i) {
+        query_data[i] = (static_cast<float>((raw_qembs_data[i])));
+    }
+    
+    for (int i = 0; i < q_num; ++i) {
+        query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, 32));
+        q_offset += 32 * VECTOR_DIM;
+    }
+    qrels.resize(q_num + 1);
+
+    std::ifstream file(qrelfile_name);
+    std::string line;
+    while (std::getline(file, line)) { // 逐行读取
+        std::istringstream iss(line);  // 创建字符串流
+        int num1, num2;
+        char delimiter;                // 用于捕获 \t 分隔符
+
+        // 读取两个整数，用 \t 作为分隔符
+        if (iss >> num1 >> num2) {
+            if (num1 < 0 || num1 >= q_num) {
+                continue;
+                // std::cerr << "?" << line << std::endl;
+            } else {
+                // std::cout << num1 << " " << num2 << std::endl;
+                qrels[num1].push_back(num2);
+            }
+        }
+    }
+    file.close();
+
+    std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << " " << qrels.size() << std::endl;
+}
 
 void load_train_query(std::vector<float>& query_data, std::vector<vectorset>& query, 
                       std::vector<std::vector<int>>& qrels) {
@@ -681,52 +760,66 @@ int main() {
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth_cf(
         6980, std::vector<std::pair<int, float>>(1000, {0, 0.0f})
     );
+    int dataset = 1;
     bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = false;
-    bool reconnect = true;
+    bool rebuild = true;
+    bool reconnect = false;
     int dist_metric = 1;
     int multi_entries_num = 40;
     int multi_entries_range = 100;
     std::mt19937 gen(42);                    // 使用Mersenne Twister引擎
     std::uniform_int_distribution<int> dist(1, std::numeric_limits<int>::max());
     std::string ground_truth_file, index_file;
-    if (dist_metric == 0) {
-        if (test_subset) {
-            ground_truth_file = "../examples/caches/95k_ground_truth_bi_summax_l2_top100.txt";
-            index_file = "../examples/localIndex/95k_bi_summax_l2.bin";
+    if (dataset == 0) {
+        if (dist_metric == 0) {
+            if (test_subset) {
+                ground_truth_file = "../examples/caches/95k_ground_truth_bi_summax_l2_top100.txt";
+                index_file = "../examples/localIndex/95k_bi_summax_l2.bin";
+            } else {
+                ground_truth_file = "../examples/caches/ground_truth_bi_summax_l2_top100.txt";
+                index_file = "../examples/localIndex/8m_bi_summax_l2.bin";
+            }
+        } else if (dist_metric == 1) {
+            if (test_subset) {
+                ground_truth_file = "../examples/caches/95k_ground_truth_single_summax_l2_top100.txt";
+                index_file = "../examples/localIndex/95k_single_summax_l2.bin";
+            } else {
+                ground_truth_file = "../examples/caches/ground_truth_single_summax_l2_top100.txt";
+                index_file = "../examples/localIndex/8m_emd_l2.bin";
+            }
         } else {
-            ground_truth_file = "../examples/caches/ground_truth_bi_summax_l2_top100.txt";
-            index_file = "../examples/localIndex/8m_bi_summax_l2.bin";
+            if (test_subset) {
+                ground_truth_file = "../examples/caches/95k_ground_truth_new_summax_l2_top100.txt";
+                index_file = "../examples/localIndex/95k_new_summax_l2.bin";
+            } else {
+                ground_truth_file = "../examples/caches/ground_truth_new_summax_l2_top100.txt";
+                index_file = "../examples/localIndex/8m_new_summax_l2.bin";
+            }
         }
-    } else if (dist_metric == 1) {
+    } 
+    else if (dataset == 1) {
+        ground_truth_file = "../examples/caches/ground_truth_new_summax_l2_top100.txt";
+        index_file = "../examples/localIndex/lotte_emd_l2.bin";
+    }
+
+    if (dataset == 0) {
         if (test_subset) {
-            ground_truth_file = "../examples/caches/95k_ground_truth_single_summax_l2_top100.txt";
-            index_file = "../examples/localIndex/95k_single_summax_l2.bin";
+            // test on collected 95k msmacro subset
+            base_data.resize((long long) 96000 * VECTOR_DIM * 80);
+            query_data.resize((long long) NUM_QUERY_SETS * VECTOR_DIM * 32);
+            subset_test_msmarco(base_data, base, query_data, query, qrels);     
         } else {
-            ground_truth_file = "../examples/caches/ground_truth_single_summax_l2_top100.txt";
-            index_file = "../examples/localIndex/8m_emd_l2.bin";
-        }
-    } else {
-        if (test_subset) {
-            ground_truth_file = "../examples/caches/95k_ground_truth_new_summax_l2_top100.txt";
-            index_file = "../examples/localIndex/95k_new_summax_l2.bin";
-        } else {
-            ground_truth_file = "../examples/caches/ground_truth_new_summax_l2_top100.txt";
-            index_file = "../examples/localIndex/8m_new_summax_l2.bin";
+            // test on all msmacro dataset
+            base_data.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 128 * 80);
+            query_data.resize((long long) NUM_QUERY_SETS * 128 * 32 + 1);
+            load_from_msmarco(base_data, base, query_data, query, MSMACRO_TEST_NUMBER, qrels);
         }
     }
-    
-    if (test_subset) {
-        // test on collected 95k msmacro subset
-        base_data.resize((long long) 96000 * VECTOR_DIM * 80);
-        query_data.resize((long long) NUM_QUERY_SETS * VECTOR_DIM * 32);
-        subset_test_msmarco(base_data, base, query_data, query, qrels);     
-    } else {
-        // test on all msmacro dataset
-        base_data.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 128 * 80);
-        query_data.resize((long long) NUM_QUERY_SETS * 128 * 32 + 1);
-        load_from_msmarco(base_data, base, query_data, query, MSMACRO_TEST_NUMBER, qrels);
+    else if (dataset == 1) {
+        base_data.resize((long long) NUM_BASE_VECTOR_LOTTE * 128);
+        query_data.resize((long long) NUM_QUERT_LOTTE * 128 * 32);
+        load_from_lotte(base_data, base, query_data, query, LOTTE_TEST_NUMBER, qrels);
     }
 
     if (!load_bf_from_cache) {
@@ -755,6 +848,15 @@ int main() {
         readGroundTruth(ground_truth_file, bf_ground_truth_cf);
         std::cout<< "load BF Groundtruth Finish!" <<std::endl;
     }
+
+    // for (int i = 0; i < 10000; i++) {
+    //     float chamfer_dist = hnswlib::L2SqrVecSet(&base[i], &base[i + 1], 0);
+    //     float emd_dist = hnswlib::L2SqrVecEMD(&base[i], &base[i + 1], 0);
+    //     if (emd_dist < chamfer_dist) {
+    //         std::cout << i << ' ' << emd_dist << ' ' << chamfer_dist << std::endl;
+    //     }
+    // }
+    // return 0;
 
     Solution solution;
     if (rebuild) {
@@ -858,9 +960,9 @@ int main() {
             std::cout << "recall vs BruteFroce: before " << all_bf_before << " after " << all_bf_after << std::endl;
             std::cout << "recall vs Label: before " <<  all_label_before << " after " << all_label_after << std::endl;
         }
+        return 0;
     }
-    return 0;
-    NUM_QUERY_SETS = 100;
+
     for (int tmpef = 100; tmpef <= 2000; tmpef += 100) {
         double total_recall = 0.0;
         double total_cf_recall = 0.0;
