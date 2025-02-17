@@ -17,7 +17,7 @@ constexpr int BASE_VECTOR_SET_MIN = 36;
 constexpr int BASE_VECTOR_SET_MAX = 48;
 constexpr int MSMACRO_TEST_NUMBER = 354;
 constexpr int NUM_BASE_SETS = 25000 * MSMACRO_TEST_NUMBER;
-constexpr int NUM_QUERY_SETS = 100;
+int NUM_QUERY_SETS = 6980;
 constexpr int QUERY_VECTOR_COUNT = 32;
 constexpr int K = 100;
 
@@ -145,6 +145,10 @@ public:
         alg_hnsw->mutuallyConnectTwoElement(p2, p1);
     }
 
+    bool canAddEdge(hnswlib::labeltype p1) {
+        return alg_hnsw->canAddEdge(p1);
+    }
+
 private:
     int dimension;
     std::vector<vectorset> base_vectors;
@@ -165,6 +169,33 @@ float half_to_float(uint16_t h) {
     } else {                                   // 规范化数
         return (s ? -1 : 1) * std::ldexp(f + 1024, e - 15 - 10);
     }
+}
+
+std::vector<float> generate_random_vector(int n, float min, float max) {
+    std::random_device rd;
+    std::default_random_engine gen(rd());  // 随机数生成器
+    std::uniform_real_distribution<float> dis(min, max);  // 在[min, max]范围内生成随机数
+
+    std::vector<float> random_vector(n);
+    for (int i = 0; i < n; ++i) {
+        random_vector[i] = dis(gen);  // 填充随机值
+    }
+
+    return random_vector;
+}
+
+std::vector<int> generate_random_sign_sequence(int n) {
+    std::random_device rd;
+    std::default_random_engine gen(rd());  // 随机数生成器
+    std::uniform_int_distribution<int> dis(0, 1);  // 生成 0 或 1
+
+    std::vector<int> sequence(n);
+    for (int i = 0; i < n; ++i) {
+        // 根据随机生成的 0 或 1，赋值 -1 或 +1
+        sequence[i] = (dis(gen) == 0) ? -1 : 1;
+    }
+
+    return sequence;
 }
 
 
@@ -314,6 +345,53 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
     std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << " " << qrels.size() << std::endl;
 }
 
+
+void load_train_query(std::vector<float>& query_data, std::vector<vectorset>& query, 
+                      std::vector<std::vector<int>>& qrels) {
+    long long offset = 0;  
+    long long all_elements = 0;   
+    std::string qembfile_name = "/home/zhoujin/data/train_query.npy";
+    std::string qrelfile_name = "/home/zhoujin/data/qrels.train.select.reorder.tsv";    
+
+    cnpy::NpyArray qembs_npy = cnpy::npy_load(qembfile_name);
+
+    float* raw_qembs_data = qembs_npy.data<float>();
+    size_t num_qembs_elements = qembs_npy.shape[0] * qembs_npy.shape[1] * qembs_npy.shape[2];
+    size_t q_num = qembs_npy.shape[0];
+
+    int q_offset = 0;
+    
+    for (size_t i = 0; i < num_qembs_elements; ++i) {
+        query_data[i] = (static_cast<float>((raw_qembs_data[i])));
+    }
+    
+    for (int i = 0; i < q_num; ++i) {
+        query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, 32));
+        q_offset += 32 * VECTOR_DIM;
+    }
+    qrels.resize(q_num + 1);
+
+    std::ifstream file(qrelfile_name);
+    std::string line;
+    while (std::getline(file, line)) { // 逐行读取
+        std::istringstream iss(line);  // 创建字符串流
+        int num1, num2;
+        char delimiter;                // 用于捕获 \t 分隔符
+
+        // 读取两个整数，用 \t 作为分隔符
+        if (iss >> num1 >> num2) {
+            if (num1 < 0 || num1 >= q_num) {
+                continue;
+                // std::cerr << "?" << line << std::endl;
+            } else {
+                // std::cout << num1 << " " << num2 << std::endl;
+                qrels[num1].push_back(num2);
+            }
+        }
+    }
+    file.close();
+    std::cout << "load train query finish! query count: " << query.size() << " " << qrels.size() << std::endl;
+}
 
 void subset_test_msmarco(std::vector<float>& base_data, std::vector<vectorset>& base,
                        std::vector<float>& query_data, std::vector<vectorset>& query, 
@@ -537,7 +615,7 @@ double calculate_recall(const std::vector<std::pair<int, float>>& solution_indic
     for (const auto& pair : ground_truth_indices) {
         ground_truth_set.insert(pair.first);
         // std::cout << pair.first << " ";
-        if (ground_truth_set.size() >= K) {
+        if (ground_truth_set.size() >= 1) {
             break;
         }
     }
@@ -603,9 +681,10 @@ int main() {
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth_cf(
         6980, std::vector<std::pair<int, float>>(1000, {0, 0.0f})
     );
-    bool test_subset = true;
+    bool test_subset = false;
     bool load_bf_from_cache = true;
     bool rebuild = false;
+    bool reconnect = true;
     int dist_metric = 1;
     int multi_entries_num = 40;
     int multi_entries_range = 100;
@@ -626,7 +705,7 @@ int main() {
             index_file = "../examples/localIndex/95k_single_summax_l2.bin";
         } else {
             ground_truth_file = "../examples/caches/ground_truth_single_summax_l2_top100.txt";
-            index_file = "../examples/localIndex/8m_single_summax_l2_mean.bin";
+            index_file = "../examples/localIndex/8m_emd_l2.bin";
         }
     } else {
         if (test_subset) {
@@ -673,7 +752,7 @@ int main() {
     }
     else {
         readGroundTruth(ground_truth_file, bf_ground_truth);
-        readGroundTruth("../examples/caches/95k_ground_truth_single_summax_l2_top100.txt", bf_ground_truth_cf);
+        readGroundTruth(ground_truth_file, bf_ground_truth_cf);
         std::cout<< "load BF Groundtruth Finish!" <<std::endl;
     }
 
@@ -684,14 +763,105 @@ int main() {
     } else {
         solution.load(index_file, VECTOR_DIM, base);
     }
-    // for (int i = 0; i < 10; ++i) {
-    //     for (int j = 0; j < 9; j++) {
-    //         for (int k = 20; k < 10; k++) {
-    //             solution.addEdge(qrels[i][j], qrels[i][k]);
+
+    // if (reconnect) {
+    //     int add_success_count = 0;
+    //     std::vector<float> train_query_data;
+    //     std::vector<vectorset> train_query;
+    //     std::vector<std::vector<int>> train_qrels;
+    //     train_query_data.resize((long long) 808731 * 128 * 32 + 1);
+    //     load_train_query(train_query_data, train_query, train_qrels);
+    //     std::vector<std::pair<int, float>> solution_indices;
+    //     for (int i = 0; i < 808731; i++) {
+    //         if (i % 1000 == 0) {
+    //             std::cout << i << std::endl;
     //         }
+    //         if (train_qrels[i].size() == 0) {
+    //             continue;
+    //         }
+    //         solution_indices.clear();
+    //         double query_time = solution.search(train_query[i], 100, 1000, solution_indices);
+    //         double recall_before_add = calculate_recall_for_msmacro(solution_indices, train_qrels[i]);
+    //         for (int j = 0; j < train_qrels[i].size(); j++) {
+    //             if (solution.canAddEdge(train_qrels[i][j])) {
+    //                 for (int k = 0; k < solution_indices.size(); k ++) {
+    //                     if (solution.canAddEdge(solution_indices[k].first)) {
+    //                         solution.addEdge(solution_indices[k].first, train_qrels[i][j]);
+    //                         add_success_count += 1;
+    //                         break;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //         solution_indices.clear();
+    //         query_time = solution.search(train_query[i], 100, 1000, solution_indices);
+    //         double recall_after_add = calculate_recall_for_msmacro(solution_indices, train_qrels[i]);
+    //         std::cout << "Recall for train query set " << i << ": " << recall_before_add << " | " << recall_after_add << std::endl;
+        
     //     }
+    //     std::cout << "success add count: " << add_success_count << std::endl;
     // }
-    for (int tmpef = 200; tmpef <= 200; tmpef += 100) {
+
+    if (reconnect) {
+        std::vector<std::pair<int, float>> solution_indices;
+
+        for (int t = 1; t < 50; t++) {
+            std::cout << t << " ============" << std::endl;
+            double all_bf_before = 0.0;
+            double all_label_before = 0.0;
+            double all_bf_after = 0.0;
+            double all_label_after = 0.0;
+            Solution newsolution;
+            newsolution.load(index_file, VECTOR_DIM, base);
+            std::vector<float> random_noise = generate_random_vector(32, (float)t / 100, (float)(t + 1) / 100);
+            std::vector<int> random_sign = generate_random_sign_sequence(32);
+            for (int i = 0; i < 100; i++) {
+                solution_indices.clear();
+                for (int j = 0; j < 32; j++) {
+                    for (int k = 0; k < 128; k++) {
+                        query_data[i * 32 * 128 + j * 128 + k] = query_data[i * 32 * 128 + j * 128 + k] + (float)random_noise[j] * (float) random_sign[j];
+                    }
+                }
+                double query_time = newsolution.search(query[i], 100, 1000, solution_indices);
+                double recall_before_add = calculate_recall_for_msmacro(solution_indices, qrels[i]);
+                double recall_bf_before = calculate_recall(solution_indices, bf_ground_truth[i]);
+                all_bf_before += recall_bf_before;
+                all_label_before += recall_before_add;
+
+                // for (int j = 0; j < 9; j++) {
+                //     newsolution.addEdge(bf_ground_truth_cf[i][j].first, bf_ground_truth_cf[i][j + 1].first);
+                // }
+                for (int j = 0; j < 9; j++) {
+                    newsolution.addEdge(solution_indices[j].first, solution_indices[j + 1].first);
+                }
+                // if (bf_ground_truth_cf[i][0].first != qrels[i][0]) {
+                //     newsolution.addEdge(qrels[i][0], bf_ground_truth_cf[i][0].first);
+                // }
+                if (solution_indices[0].first != qrels[i][0]) {
+                    newsolution.addEdge(qrels[i][0], solution_indices[0].first);
+                }
+                solution_indices.clear();
+                for (int j = 0; j < 32; j++) {
+                    for (int k = 0; k < 128; k++) {
+                        query_data[i * 32 * 128 + j * 128 + k] = query_data[i * 32 * 128 + j * 128 + k] - (float)random_noise[j] * (float) random_sign[j];
+                    }
+                }
+                query_time = newsolution.search(query[i], 100, 1000, solution_indices);
+                double recall_after_add = calculate_recall_for_msmacro(solution_indices, qrels[i]);
+                double recall_bf_after = calculate_recall(solution_indices, bf_ground_truth[i]);
+                all_bf_after += recall_bf_after;
+                all_label_after += recall_after_add;
+                std::cout << "Recall for train query set " << i << ": " << recall_before_add <<  " " << recall_bf_before << " | " << recall_after_add << " " << recall_bf_after << std::endl;
+            
+            }
+            std::cout << "error level: " << t << std::endl; 
+            std::cout << "recall vs BruteFroce: before " << all_bf_before << " after " << all_bf_after << std::endl;
+            std::cout << "recall vs Label: before " <<  all_label_before << " after " << all_label_after << std::endl;
+        }
+    }
+    return 0;
+    NUM_QUERY_SETS = 100;
+    for (int tmpef = 100; tmpef <= 2000; tmpef += 100) {
         double total_recall = 0.0;
         double total_cf_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
@@ -724,6 +894,7 @@ int main() {
             //         break;
             //     }
             // }
+            
             // for (int j = 0; j < multi_entries_num; j++) {
             //     entry_points[j] = bf_ground_truth[i][entry_point_index[j]].first;
             // }
@@ -761,8 +932,8 @@ int main() {
             total_recall += recall;
             double cf_recall = calculate_recall(solution_indices, bf_ground_truth_cf[i]);
             total_cf_recall += cf_recall;
-            double entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 10);
-            total_enrty_recall_10 += entry_recall;
+            // double entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 10);
+            // total_enrty_recall_10 += entry_recall;
             // if (entry_recall > 0) {
             //     for (int j = 0; j < 80;j++) {
             //         std::cout << entry_points[j] << std::endl;
@@ -773,12 +944,12 @@ int main() {
             //     }
             //     break;
             // }
-            entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 30);
-            total_enrty_recall_30 += entry_recall;
-            entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 50);
-            total_enrty_recall_50 += entry_recall;
-            entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 100);
-            total_enrty_recall_100 += entry_recall;
+            // entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 30);
+            // total_enrty_recall_30 += entry_recall;
+            // entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 50);
+            // total_enrty_recall_50 += entry_recall;
+            // entry_recall = calculate_entry_recall(entry_points, bf_ground_truth[i], 100);
+            // total_enrty_recall_100 += entry_recall;
             double dataset_hnsw_recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
             total_dataset_hnsw_recall += dataset_hnsw_recall;
             std::cout << "Recall for query set " << i << ": " << dataset_hnsw_recall << " | " << recall << " " << wcf_bf_recall << " | " << cf_recall << " " << cf_bf_recall << " " << query_time << std::endl;

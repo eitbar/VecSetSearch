@@ -1600,6 +1600,40 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
         return;
     }
 
+    bool canAddEdge(
+        labeltype label1) {
+        int level = 0;
+        size_t Mcurmax = level ? maxM_ : maxM0_;
+        // std::cout << label1 << ' ' << label2 << std::endl;
+        tableint p1;
+        {
+            std::unique_lock <std::mutex> lock_table(label_lookup_lock);
+            auto search = label_lookup_.find(label1);
+            if (search != label_lookup_.end()) {
+                p1 = search->second;
+            }
+            lock_table.unlock();
+
+        }
+        bool canadd = false;
+        {
+            std::unique_lock <std::mutex> lock(link_list_locks_[p1]);
+            linklistsizeint *ll_other;
+            if (level == 0)
+                ll_other = get_linklist0(p1);
+            else
+                ll_other = get_linklist(p1, level);
+
+            size_t sz_link_list_other = getListCount(ll_other);
+
+            if (sz_link_list_other < Mcurmax)
+                canadd = true;
+            // else
+            //     std::cout << label1 << " " << sz_link_list_other << " " << Mcurmax << std::endl;
+        }
+        
+        return canadd;
+    }
     // tableint mutuallyConnectNewElement(
     //     const void *data_point,
     //     tableint cur_c,
