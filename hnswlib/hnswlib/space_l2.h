@@ -906,7 +906,7 @@ static std::pair<float, float> L2SqrVecSetInitPreCalcReturn2(const vectorset* a,
     //     }
     //     sum2 += maxDist;
     // }
-    return std::make_pair(sum1 / a_vecnum, sum1);
+    return std::make_pair(sum1 / a_vecnum, sum1 / a_vecnum);
 }
 
 static float L2SqrVecSetMapCalc(const vectorset* a, const vectorset* b, const vectorset* c, const uint8_t* old_map_ab, const uint8_t* old_map_bc,  std::vector<std::vector<float>>& dist_matrix, int level) {

@@ -21,7 +21,7 @@ constexpr long long NUM_BASE_VECTOR_LOTTE = 339419977;
 constexpr int NUM_BASE_SETS_LOTTE = 2428853;
 constexpr int NUM_QUERT_LOTTE = 2930;
 constexpr int LOTTE_TEST_NUMBER = 98;
-int NUM_QUERY_SETS = 2930;
+int NUM_QUERY_SETS = 100;
 constexpr int QUERY_VECTOR_COUNT = 32;
 constexpr int K = 100;
 
@@ -425,6 +425,32 @@ void load_from_lotte(std::vector<float>& base_data, std::vector<vectorset>& base
     std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << " " << qrels.size() << std::endl;
 }
 
+
+void load_noise_query(std::vector<float>& query_data, std::vector<vectorset>& query, 
+                      std::string& qembfile_name) {
+    long long offset = 0;  
+    long long all_elements = 0;   
+    cnpy::NpyArray qembs_npy = cnpy::npy_load(qembfile_name);
+
+    float* raw_qembs_data = qembs_npy.data<float>();
+    size_t num_qembs_elements = 100 * qembs_npy.shape[1] * qembs_npy.shape[2];
+    size_t q_num = 100;
+
+    int q_offset = 0;
+    
+    for (size_t i = 0; i < num_qembs_elements; ++i) {
+        query_data[i] = (static_cast<float>((raw_qembs_data[i])));
+    }
+    
+    for (int i = 0; i < q_num; ++i) {
+        query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, 32));
+        q_offset += 32 * VECTOR_DIM;
+    }
+
+    std::cout << "load data finish! passage count: " << " query count: " << query.size() << std::endl;
+}
+
+
 void load_train_query(std::vector<float>& query_data, std::vector<vectorset>& query, 
                       std::vector<std::vector<int>>& qrels) {
     long long offset = 0;  
@@ -760,10 +786,10 @@ int main() {
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth_cf(
         6980, std::vector<std::pair<int, float>>(1000, {0, 0.0f})
     );
-    int dataset = 1;
+    int dataset = 0;
     bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = true;
+    bool rebuild = false;
     bool reconnect = false;
     int dist_metric = 1;
     int multi_entries_num = 40;
@@ -866,47 +892,151 @@ int main() {
         solution.load(index_file, VECTOR_DIM, base);
     }
 
-    // if (reconnect) {
-    //     int add_success_count = 0;
-    //     std::vector<float> train_query_data;
-    //     std::vector<vectorset> train_query;
-    //     std::vector<std::vector<int>> train_qrels;
-    //     train_query_data.resize((long long) 808731 * 128 * 32 + 1);
-    //     load_train_query(train_query_data, train_query, train_qrels);
-    //     std::vector<std::pair<int, float>> solution_indices;
-    //     for (int i = 0; i < 808731; i++) {
-    //         if (i % 1000 == 0) {
-    //             std::cout << i << std::endl;
-    //         }
-    //         if (train_qrels[i].size() == 0) {
-    //             continue;
-    //         }
-    //         solution_indices.clear();
-    //         double query_time = solution.search(train_query[i], 100, 1000, solution_indices);
-    //         double recall_before_add = calculate_recall_for_msmacro(solution_indices, train_qrels[i]);
-    //         for (int j = 0; j < train_qrels[i].size(); j++) {
-    //             if (solution.canAddEdge(train_qrels[i][j])) {
-    //                 for (int k = 0; k < solution_indices.size(); k ++) {
-    //                     if (solution.canAddEdge(solution_indices[k].first)) {
-    //                         solution.addEdge(solution_indices[k].first, train_qrels[i][j]);
-    //                         add_success_count += 1;
-    //                         break;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //         solution_indices.clear();
-    //         query_time = solution.search(train_query[i], 100, 1000, solution_indices);
-    //         double recall_after_add = calculate_recall_for_msmacro(solution_indices, train_qrels[i]);
-    //         std::cout << "Recall for train query set " << i << ": " << recall_before_add << " | " << recall_after_add << std::endl;
+    for (int l = 5; l <= 5; l++) {
+        std::cout << "testing error " << (float) l / 20 << " " << (float) (l + 1) / 20 << std::endl;
+        std::string noise_q_name, noise_bf;
+        std::string original_q_name = "/home/zhoujin/data/noise_query_msmacro/origin_query.npy";
+        if (l == 1) {
+            noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_1.npy";
+            noise_bf = "/home/zhoujin/data/noise_query_msmacro/1.txt";
+        } else if (l == 2) {
+            noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_2.npy";
+            noise_bf = "/home/zhoujin/data/noise_query_msmacro/2.txt";
+        } else if (l == 3) {
+            noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_3.npy";
+            noise_bf = "/home/zhoujin/data/noise_query_msmacro/3.txt";
+        } else if (l == 4) {
+            noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_4.npy";
+            noise_bf = "/home/zhoujin/data/noise_query_msmacro/4.txt";
+        } else if (l == 5) {
+            noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_5.npy";
+            noise_bf = "/home/zhoujin/data/noise_query_msmacro/5.txt";
+        }
+
+        // std::vector<float> original_query_data;
+        // std::vector<vectorset> original_query; 
+        // original_query_data.resize((long long) 100 * 128 * 32);   
+        // load_noise_query(original_query_data, original_query, original_q_name);
+        std::vector<float> noise_query_data;
+        std::vector<vectorset> noise_query;   
+        noise_query_data.resize((long long) 100 * 128 * 32);   
+        load_noise_query(noise_query_data, noise_query, noise_q_name);
+        std::vector<std::vector<std::pair<int, float>>> noise_ground_truth_cf(
+            100, std::vector<std::pair<int, float>>(1000, {0, 0.0f})
+        );
+        std::vector<int> qid_list = {9, 30, 35, 43, 58, 60, 77, 83, 86, 90, 92, 93}; 
+        readGroundTruth(noise_bf, noise_ground_truth_cf);
+        std::cout << noise_ground_truth_cf[0][0].first << " " << noise_ground_truth_cf[0][0].second << std::endl;
+        std::cout << hnswlib::L2SqrVecSet(&noise_query[0], &base[noise_ground_truth_cf[0][0].first], 0) << std::endl;
+        // for (int i =0; i< 128; i++) {
+        //     std::cout << noise_query_data[i] << " ";
+        // }
+        std::cout<<std::endl;
+        std::vector<std::pair<int, float>> solution_indices;
+        Solution newsolution;
+        newsolution.load(index_file, VECTOR_DIM, base);
+        for (int ef = 100; ef <= 2000; ef+= 100) {
+            std::cout << "ef: " << ef << std::endl;
+            double all_noise_query_recall_before_add = 0;
+            for (int i = 0; i < 100; i++) {
+                std::cout << "=======" << i << "=======" << std::endl;
+                for (int k = 0; k < 128; k++) {
+                    std::cout << noise_query[i].data[k] << " ";
+                }
+                std::cout << std::endl;
+                std::cout << "=======" <<std::endl;
+                for (int k = 0; k < 10; k++) {
+                    std::cout << noise_ground_truth_cf[i][k].first << " " << noise_ground_truth_cf[i][k].second << " " << hnswlib::L2SqrVecSet(&noise_query[i], &base[noise_ground_truth_cf[i][k].first], 0) << std::endl;
+                }
+                std::cout << "=======" <<std::endl;
+                solution_indices.clear();
+                double query_time = newsolution.search(noise_query[i], 100, ef, solution_indices);
+                std::sort(solution_indices.begin(), solution_indices.end(),
+                [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
+                    return a.second < b.second;
+                });
+                double noise_query_recall_before_add = calculate_recall(solution_indices, noise_ground_truth_cf[i]);
+                std::cout << noise_query_recall_before_add << std::endl;
+                for (int k = 0; k < 10; k++) {
+                    std::cout << solution_indices[k].first << " " << solution_indices[k].second << " " << hnswlib::L2SqrVecSet(&noise_query[i], &base[solution_indices[k].first], 0) << std::endl;
+                }
+                std::cout << "=======" <<std::endl;
+                all_noise_query_recall_before_add += noise_query_recall_before_add;
+                continue;
+
+                // solution_indices.clear();
+                // double query_time = newsolution.search(query[i], 100, 200, solution_indices);
+                // double original_query_recall_before_add = calculate_recall(solution_indices, bf_ground_truth_cf[i]);
+                // // double query_time = newsolution.search(query[qid_list[i]], 100, 200, solution_indices);
+                // // double original_query_recall_before_add = calculate_recall(solution_indices, bf_ground_truth_cf[qid_list[i]]);
+                // solution_indices.clear();
+                // query_time = newsolution.search(noise_query[i], 100, 200, solution_indices);
+                // double noise_query_recall_before_add = calculate_recall(solution_indices, noise_ground_truth_cf[i]);
+                // // for (int j = 0; j < 9; j++) {
+                // //     newsolution.addEdge(bf_ground_truth_cf[qid_list[i]][j].first, bf_ground_truth_cf[qid_list[i]][j + 1].first);
+                // // }
+                // for (int j = 0; j < 9; j++) {
+                //     newsolution.addEdge(bf_ground_truth_cf[i][j].first, bf_ground_truth_cf[i][j + 1].first);
+                // }
+                // solution_indices.clear();
+                // query_time = newsolution.search(query[i], 100, 200, solution_indices);
+                // double original_query_recall_after_add = calculate_recall(solution_indices, bf_ground_truth_cf[i]);
+                // // query_time = newsolution.search(query[qid_list[i]], 100, 200, solution_indices);
+                // // double original_query_recall_after_add = calculate_recall(solution_indices, bf_ground_truth_cf[qid_list[i]]);
+                // solution_indices.clear();
+                // query_time = newsolution.search(noise_query[i], 100, 200, solution_indices);
+                // double noise_query_recall_after_add = calculate_recall(solution_indices, noise_ground_truth_cf[i]);
+                // std::cout << i << " : " << original_query_recall_before_add << " " << original_query_recall_after_add << " | " << noise_query_recall_before_add << " " << noise_query_recall_after_add << std::endl;
+            }
+            std::cout << all_noise_query_recall_before_add / 100 << std::endl;
+        }
+    }
+
+
+    if (reconnect) {
         
-    //     }
-    //     std::cout << "success add count: " << add_success_count << std::endl;
-    // }
+        int add_success_count = 0;
+        std::vector<float> train_query_data;
+        std::vector<vectorset> train_query;
+        std::vector<std::vector<int>> train_qrels;
+        // train_query_data.resize((long long) 808731 * 128 * 32 + 1);
+        std::vector<std::vector<std::pair<int, float>>> train_ground_truth_cf(
+            6980, std::vector<std::pair<int, float>>(10, {0, 0.0f})
+        );
+        load_train_query(train_query_data, train_query, train_qrels);
+        std::vector<std::pair<int, float>> solution_indices;
+        for (int i = 0; i < 808731; i++) {
+            if (i % 1000 == 0) {
+                std::cout << i << std::endl;
+            }
+            if (train_qrels[i].size() == 0) {
+                continue;
+            }
+            solution_indices.clear();
+            double query_time = solution.search(train_query[i], 100, 1000, solution_indices);
+            double recall_before_add = calculate_recall_for_msmacro(solution_indices, train_qrels[i]);
+            for (int j = 0; j < train_qrels[i].size(); j++) {
+                if (solution.canAddEdge(train_qrels[i][j])) {
+                    for (int k = 0; k < solution_indices.size(); k ++) {
+                        if (solution.canAddEdge(solution_indices[k].first)) {
+                            solution.addEdge(solution_indices[k].first, train_qrels[i][j]);
+                            add_success_count += 1;
+                            break;
+                        }
+                    }
+                }
+            }
+            solution_indices.clear();
+            query_time = solution.search(train_query[i], 100, 1000, solution_indices);
+            double recall_after_add = calculate_recall_for_msmacro(solution_indices, train_qrels[i]);
+            std::cout << "Recall for train query set " << i << ": " << recall_before_add << " | " << recall_after_add << std::endl;
+        
+        }
+        std::cout << "success add count: " << add_success_count << std::endl;
+    }
 
     if (reconnect) {
         std::vector<std::pair<int, float>> solution_indices;
-
         for (int t = 1; t < 50; t++) {
             std::cout << t << " ============" << std::endl;
             double all_bf_before = 0.0;
@@ -963,7 +1093,7 @@ int main() {
         return 0;
     }
 
-    for (int tmpef = 100; tmpef <= 2000; tmpef += 100) {
+    for (int tmpef = 1000; tmpef <= 1000; tmpef += 100) {
         double total_recall = 0.0;
         double total_cf_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
