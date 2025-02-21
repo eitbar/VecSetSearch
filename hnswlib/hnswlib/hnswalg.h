@@ -39,7 +39,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     int maxLevel_ty=3;
 
     const int fineEdgeTopk = 1;
-    const int fineEdgeMaxlen = 120;
+    const int fineEdgeMaxlen = 130;
     const int fineEdgeSize = fineEdgeMaxlen * 2 * fineEdgeTopk;
     const int multi_entry_thread_num = 1;
     const int inner_search_thread_num = 8;

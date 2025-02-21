@@ -17,6 +17,401 @@ using namespace Eigen;
 namespace hnswlib {
 
 static float
+InnerProduct(const void *pVect1, const void *pVect2, const void *qty_ptr) {
+    size_t qty = *((size_t *) qty_ptr);
+    float res = 0;
+    for (unsigned i = 0; i < qty; i++) {
+        res += ((float *) pVect1)[i] * ((float *) pVect2)[i];
+    }
+    return res;
+}
+
+static float
+InnerProductDistance(const void *pVect1, const void *pVect2, const void *qty_ptr) {
+    return 1.0f - InnerProduct(pVect1, pVect2, qty_ptr);
+}
+
+#if defined(USE_AVX)
+
+// Favor using AVX if available.
+static float
+InnerProductSIMD4ExtAVX(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    float PORTABLE_ALIGN32 TmpRes[8];
+    float *pVect1 = (float *) pVect1v;
+    float *pVect2 = (float *) pVect2v;
+    size_t qty = *((size_t *) qty_ptr);
+
+    size_t qty16 = qty / 16;
+    size_t qty4 = qty / 4;
+
+    const float *pEnd1 = pVect1 + 16 * qty16;
+    const float *pEnd2 = pVect1 + 4 * qty4;
+
+    __m256 sum256 = _mm256_set1_ps(0);
+
+    while (pVect1 < pEnd1) {
+        //_mm_prefetch((char*)(pVect2 + 16), _MM_HINT_T0);
+
+        __m256 v1 = _mm256_loadu_ps(pVect1);
+        pVect1 += 8;
+        __m256 v2 = _mm256_loadu_ps(pVect2);
+        pVect2 += 8;
+        sum256 = _mm256_add_ps(sum256, _mm256_mul_ps(v1, v2));
+
+        v1 = _mm256_loadu_ps(pVect1);
+        pVect1 += 8;
+        v2 = _mm256_loadu_ps(pVect2);
+        pVect2 += 8;
+        sum256 = _mm256_add_ps(sum256, _mm256_mul_ps(v1, v2));
+    }
+
+    __m128 v1, v2;
+    __m128 sum_prod = _mm_add_ps(_mm256_extractf128_ps(sum256, 0), _mm256_extractf128_ps(sum256, 1));
+
+    while (pVect1 < pEnd2) {
+        v1 = _mm_loadu_ps(pVect1);
+        pVect1 += 4;
+        v2 = _mm_loadu_ps(pVect2);
+        pVect2 += 4;
+        sum_prod = _mm_add_ps(sum_prod, _mm_mul_ps(v1, v2));
+    }
+
+    _mm_store_ps(TmpRes, sum_prod);
+    float sum = TmpRes[0] + TmpRes[1] + TmpRes[2] + TmpRes[3];
+    return sum;
+}
+
+static float
+InnerProductDistanceSIMD4ExtAVX(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    return 1.0f - InnerProductSIMD4ExtAVX(pVect1v, pVect2v, qty_ptr);
+}
+
+#endif
+
+#if defined(USE_SSE)
+
+static float
+InnerProductSIMD4ExtSSE(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    float PORTABLE_ALIGN32 TmpRes[8];
+    float *pVect1 = (float *) pVect1v;
+    float *pVect2 = (float *) pVect2v;
+    size_t qty = *((size_t *) qty_ptr);
+
+    size_t qty16 = qty / 16;
+    size_t qty4 = qty / 4;
+
+    const float *pEnd1 = pVect1 + 16 * qty16;
+    const float *pEnd2 = pVect1 + 4 * qty4;
+
+    __m128 v1, v2;
+    __m128 sum_prod = _mm_set1_ps(0);
+
+    while (pVect1 < pEnd1) {
+        v1 = _mm_loadu_ps(pVect1);
+        pVect1 += 4;
+        v2 = _mm_loadu_ps(pVect2);
+        pVect2 += 4;
+        sum_prod = _mm_add_ps(sum_prod, _mm_mul_ps(v1, v2));
+
+        v1 = _mm_loadu_ps(pVect1);
+        pVect1 += 4;
+        v2 = _mm_loadu_ps(pVect2);
+        pVect2 += 4;
+        sum_prod = _mm_add_ps(sum_prod, _mm_mul_ps(v1, v2));
+
+        v1 = _mm_loadu_ps(pVect1);
+        pVect1 += 4;
+        v2 = _mm_loadu_ps(pVect2);
+        pVect2 += 4;
+        sum_prod = _mm_add_ps(sum_prod, _mm_mul_ps(v1, v2));
+
+        v1 = _mm_loadu_ps(pVect1);
+        pVect1 += 4;
+        v2 = _mm_loadu_ps(pVect2);
+        pVect2 += 4;
+        sum_prod = _mm_add_ps(sum_prod, _mm_mul_ps(v1, v2));
+    }
+
+    while (pVect1 < pEnd2) {
+        v1 = _mm_loadu_ps(pVect1);
+        pVect1 += 4;
+        v2 = _mm_loadu_ps(pVect2);
+        pVect2 += 4;
+        sum_prod = _mm_add_ps(sum_prod, _mm_mul_ps(v1, v2));
+    }
+
+    _mm_store_ps(TmpRes, sum_prod);
+    float sum = TmpRes[0] + TmpRes[1] + TmpRes[2] + TmpRes[3];
+
+    return sum;
+}
+
+static float
+InnerProductDistanceSIMD4ExtSSE(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    return 1.0f - InnerProductSIMD4ExtSSE(pVect1v, pVect2v, qty_ptr);
+}
+
+#endif
+
+
+#if defined(USE_AVX512)
+
+static float
+InnerProductSIMD16ExtAVX512(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    float PORTABLE_ALIGN64 TmpRes[16];
+    float *pVect1 = (float *) pVect1v;
+    float *pVect2 = (float *) pVect2v;
+    size_t qty = *((size_t *) qty_ptr);
+
+    size_t qty16 = qty / 16;
+
+
+    const float *pEnd1 = pVect1 + 16 * qty16;
+
+    __m512 sum512 = _mm512_set1_ps(0);
+
+    size_t loop = qty16 / 4;
+    
+    while (loop--) {
+        __m512 v1 = _mm512_loadu_ps(pVect1);
+        __m512 v2 = _mm512_loadu_ps(pVect2);
+        pVect1 += 16;
+        pVect2 += 16;
+
+        __m512 v3 = _mm512_loadu_ps(pVect1);
+        __m512 v4 = _mm512_loadu_ps(pVect2);
+        pVect1 += 16;
+        pVect2 += 16;
+
+        __m512 v5 = _mm512_loadu_ps(pVect1);
+        __m512 v6 = _mm512_loadu_ps(pVect2);
+        pVect1 += 16;
+        pVect2 += 16;
+
+        __m512 v7 = _mm512_loadu_ps(pVect1);
+        __m512 v8 = _mm512_loadu_ps(pVect2);
+        pVect1 += 16;
+        pVect2 += 16;
+
+        sum512 = _mm512_fmadd_ps(v1, v2, sum512);
+        sum512 = _mm512_fmadd_ps(v3, v4, sum512);
+        sum512 = _mm512_fmadd_ps(v5, v6, sum512);
+        sum512 = _mm512_fmadd_ps(v7, v8, sum512);
+    }
+
+    while (pVect1 < pEnd1) {
+        __m512 v1 = _mm512_loadu_ps(pVect1);
+        __m512 v2 = _mm512_loadu_ps(pVect2);
+        pVect1 += 16;
+        pVect2 += 16;
+        sum512 = _mm512_fmadd_ps(v1, v2, sum512);
+    }
+
+    float sum = _mm512_reduce_add_ps(sum512);
+    return sum;
+}
+
+static float
+InnerProductDistanceSIMD16ExtAVX512(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    return 1.0f - InnerProductSIMD16ExtAVX512(pVect1v, pVect2v, qty_ptr);
+}
+
+#endif
+
+#if defined(USE_AVX)
+
+static float
+InnerProductSIMD16ExtAVX(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    float PORTABLE_ALIGN32 TmpRes[8];
+    float *pVect1 = (float *) pVect1v;
+    float *pVect2 = (float *) pVect2v;
+    size_t qty = *((size_t *) qty_ptr);
+
+    size_t qty16 = qty / 16;
+
+
+    const float *pEnd1 = pVect1 + 16 * qty16;
+
+    __m256 sum256 = _mm256_set1_ps(0);
+
+    while (pVect1 < pEnd1) {
+        //_mm_prefetch((char*)(pVect2 + 16), _MM_HINT_T0);
+
+        __m256 v1 = _mm256_loadu_ps(pVect1);
+        pVect1 += 8;
+        __m256 v2 = _mm256_loadu_ps(pVect2);
+        pVect2 += 8;
+        sum256 = _mm256_add_ps(sum256, _mm256_mul_ps(v1, v2));
+
+        v1 = _mm256_loadu_ps(pVect1);
+        pVect1 += 8;
+        v2 = _mm256_loadu_ps(pVect2);
+        pVect2 += 8;
+        sum256 = _mm256_add_ps(sum256, _mm256_mul_ps(v1, v2));
+    }
+
+    _mm256_store_ps(TmpRes, sum256);
+    float sum = TmpRes[0] + TmpRes[1] + TmpRes[2] + TmpRes[3] + TmpRes[4] + TmpRes[5] + TmpRes[6] + TmpRes[7];
+
+    return sum;
+}
+
+static float
+InnerProductDistanceSIMD16ExtAVX(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    return 1.0f - InnerProductSIMD16ExtAVX(pVect1v, pVect2v, qty_ptr);
+}
+
+#endif
+
+#if defined(USE_SSE)
+
+static float
+InnerProductSIMD16ExtSSE(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    float PORTABLE_ALIGN32 TmpRes[8];
+    float *pVect1 = (float *) pVect1v;
+    float *pVect2 = (float *) pVect2v;
+    size_t qty = *((size_t *) qty_ptr);
+
+    size_t qty16 = qty / 16;
+
+    const float *pEnd1 = pVect1 + 16 * qty16;
+
+    __m128 v1, v2;
+    __m128 sum_prod = _mm_set1_ps(0);
+
+    while (pVect1 < pEnd1) {
+        v1 = _mm_loadu_ps(pVect1);
+        pVect1 += 4;
+        v2 = _mm_loadu_ps(pVect2);
+        pVect2 += 4;
+        sum_prod = _mm_add_ps(sum_prod, _mm_mul_ps(v1, v2));
+
+        v1 = _mm_loadu_ps(pVect1);
+        pVect1 += 4;
+        v2 = _mm_loadu_ps(pVect2);
+        pVect2 += 4;
+        sum_prod = _mm_add_ps(sum_prod, _mm_mul_ps(v1, v2));
+
+        v1 = _mm_loadu_ps(pVect1);
+        pVect1 += 4;
+        v2 = _mm_loadu_ps(pVect2);
+        pVect2 += 4;
+        sum_prod = _mm_add_ps(sum_prod, _mm_mul_ps(v1, v2));
+
+        v1 = _mm_loadu_ps(pVect1);
+        pVect1 += 4;
+        v2 = _mm_loadu_ps(pVect2);
+        pVect2 += 4;
+        sum_prod = _mm_add_ps(sum_prod, _mm_mul_ps(v1, v2));
+    }
+    _mm_store_ps(TmpRes, sum_prod);
+    float sum = TmpRes[0] + TmpRes[1] + TmpRes[2] + TmpRes[3];
+
+    return sum;
+}
+
+static float
+InnerProductDistanceSIMD16ExtSSE(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    return 1.0f - InnerProductSIMD16ExtSSE(pVect1v, pVect2v, qty_ptr);
+}
+
+#endif
+
+#if defined(USE_SSE) || defined(USE_AVX) || defined(USE_AVX512)
+static DISTFUNC<float> InnerProductSIMD16Ext = InnerProductSIMD16ExtSSE;
+static DISTFUNC<float> InnerProductSIMD4Ext = InnerProductSIMD4ExtSSE;
+static DISTFUNC<float> InnerProductDistanceSIMD16Ext = InnerProductDistanceSIMD16ExtSSE;
+static DISTFUNC<float> InnerProductDistanceSIMD4Ext = InnerProductDistanceSIMD4ExtSSE;
+
+static float
+InnerProductDistanceSIMD16ExtResiduals(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    size_t qty = *((size_t *) qty_ptr);
+    size_t qty16 = qty >> 4 << 4;
+    float res = InnerProductSIMD16Ext(pVect1v, pVect2v, &qty16);
+    float *pVect1 = (float *) pVect1v + qty16;
+    float *pVect2 = (float *) pVect2v + qty16;
+
+    size_t qty_left = qty - qty16;
+    float res_tail = InnerProduct(pVect1, pVect2, &qty_left);
+    return 1.0f - (res + res_tail);
+}
+
+static float
+InnerProductDistanceSIMD4ExtResiduals(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    size_t qty = *((size_t *) qty_ptr);
+    size_t qty4 = qty >> 2 << 2;
+
+    float res = InnerProductSIMD4Ext(pVect1v, pVect2v, &qty4);
+    size_t qty_left = qty - qty4;
+
+    float *pVect1 = (float *) pVect1v + qty4;
+    float *pVect2 = (float *) pVect2v + qty4;
+    float res_tail = InnerProduct(pVect1, pVect2, &qty_left);
+
+    return 1.0f - (res + res_tail);
+}
+#endif
+
+class InnerProductSpace : public SpaceInterface<float> {
+    DISTFUNC<float> fstdistfunc_;
+    size_t data_size_;
+    size_t dim_;
+
+ public:
+    InnerProductSpace(size_t dim) {
+        fstdistfunc_ = InnerProductDistance;
+#if defined(USE_AVX) || defined(USE_SSE) || defined(USE_AVX512)
+    #if defined(USE_AVX512)
+        if (AVX512Capable()) {
+            InnerProductSIMD16Ext = InnerProductSIMD16ExtAVX512;
+            InnerProductDistanceSIMD16Ext = InnerProductDistanceSIMD16ExtAVX512;
+        } else if (AVXCapable()) {
+            InnerProductSIMD16Ext = InnerProductSIMD16ExtAVX;
+            InnerProductDistanceSIMD16Ext = InnerProductDistanceSIMD16ExtAVX;
+        }
+    #elif defined(USE_AVX)
+        if (AVXCapable()) {
+            InnerProductSIMD16Ext = InnerProductSIMD16ExtAVX;
+            InnerProductDistanceSIMD16Ext = InnerProductDistanceSIMD16ExtAVX;
+        }
+    #endif
+    #if defined(USE_AVX)
+        if (AVXCapable()) {
+            InnerProductSIMD4Ext = InnerProductSIMD4ExtAVX;
+            InnerProductDistanceSIMD4Ext = InnerProductDistanceSIMD4ExtAVX;
+        }
+    #endif
+
+        if (dim % 16 == 0)
+            fstdistfunc_ = InnerProductDistanceSIMD16Ext;
+        else if (dim % 4 == 0)
+            fstdistfunc_ = InnerProductDistanceSIMD4Ext;
+        else if (dim > 16)
+            fstdistfunc_ = InnerProductDistanceSIMD16ExtResiduals;
+        else if (dim > 4)
+            fstdistfunc_ = InnerProductDistanceSIMD4ExtResiduals;
+#endif
+        dim_ = dim;
+        data_size_ = dim * sizeof(float);
+    }
+
+    size_t get_data_size() {
+        return data_size_;
+    }
+
+    DISTFUNC<float> get_dist_func() {
+        return fstdistfunc_;
+    }
+
+    void *get_dist_func_param() {
+        return &dim_;
+    }
+
+~InnerProductSpace() {}
+};
+
+
+static float
 L2Sqr(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
     // l2_sqr_call_count.fetch_add(1, std::memory_order_relaxed); 
     float *pVect1 = (float *) pVect1v;
@@ -357,11 +752,11 @@ static float L2SqrVecCF(const vectorset* q, const vectorset* p, int level) {
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
     #elif defined(USE_AVX)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
     #else 
-    L2Sqrfunc_ = L2Sqr;
+    L2Sqrfunc_ = InnerProductDistance;
     #endif
     size_t q_vecnum = q->vecnum;
     size_t p_vecnum = p->vecnum ;
@@ -477,11 +872,11 @@ static float L2SqrVecEMD(const vectorset* q, const vectorset* p, int level) {
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
     #elif defined(USE_AVX)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
     #else 
-    L2Sqrfunc_ = L2Sqr;
+    L2Sqrfunc_ = InnerProductDistance;
     #endif
     size_t n = q->vecnum;
     size_t m = p->vecnum ;
@@ -511,11 +906,11 @@ static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
     #elif defined(USE_AVX)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
     #else 
-    L2Sqrfunc_ = L2Sqr;
+    L2Sqrfunc_ = InnerProductDistance;
     #endif
     size_t q_vecnum = q->vecnum;
     size_t p_vecnum = p->vecnum ;
@@ -555,11 +950,11 @@ static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int leve
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
     #elif defined(USE_AVX)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
     #else 
-    L2Sqrfunc_ = L2Sqr;
+    L2Sqrfunc_ = InnerProductDistance;
     #endif
 
     size_t p_vecnum = p->vecnum;
@@ -600,13 +995,13 @@ static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vector
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
     #elif defined(USE_AVX)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
     #else 
-    L2Sqrfunc_ = L2Sqr;
+    L2Sqrfunc_ = InnerProductDistance;
     #endif
-    size_t fineEdgeMaxlen = 120;
+    size_t fineEdgeMaxlen = 130;
     size_t a_vecnum = std::min(a->vecnum, (size_t)fineEdgeMaxlen);
     size_t b_vecnum = std::min(b->vecnum, (size_t)fineEdgeMaxlen);
     size_t c_vecnum = std::min(c->vecnum, (size_t)fineEdgeMaxlen);
@@ -639,14 +1034,14 @@ static float L2SqrVecSetInitEMD(const vectorset* a, const vectorset* b, uint8_t*
     // level = 0;
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
 
-    uint8_t fineEdgeMaxlen = 120;
+    uint8_t fineEdgeMaxlen = 130;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
     #elif defined(USE_AVX)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
     #else 
-    L2Sqrfunc_ = L2Sqr;
+    L2Sqrfunc_ = InnerProductDistance;
     #endif
     size_t a_vecnum = (size_t) std::min(a->vecnum, (size_t)fineEdgeMaxlen);
     size_t b_vecnum = (size_t) std::min(b->vecnum, (size_t)fineEdgeMaxlen);
@@ -688,14 +1083,14 @@ static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* ne
     // level = 0;
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
 
-    uint8_t fineEdgeMaxlen = 120;
+    uint8_t fineEdgeMaxlen = 130;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
     #elif defined(USE_AVX)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
     #else 
-    L2Sqrfunc_ = L2Sqr;
+    L2Sqrfunc_ = InnerProductDistance;
     #endif
     uint8_t a_vecnum = (uint8_t) std::min(a->vecnum, (size_t)fineEdgeMaxlen);
     uint8_t b_vecnum = (uint8_t) std::min(b->vecnum, (size_t)fineEdgeMaxlen);
@@ -743,14 +1138,14 @@ static std::pair<float, float> L2SqrVecSetInitReturn2(const vectorset* a, const 
     // level = 0;
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
 
-    uint8_t fineEdgeMaxlen = 120;
+    uint8_t fineEdgeMaxlen = 130;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
     #elif defined(USE_AVX)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
     #else 
-    L2Sqrfunc_ = L2Sqr;
+    L2Sqrfunc_ = InnerProductDistance;
     #endif
     uint8_t a_vecnum = (uint8_t) std::min(a->vecnum, (size_t)fineEdgeMaxlen);
     uint8_t b_vecnum = (uint8_t) std::min(b->vecnum, (size_t)fineEdgeMaxlen);
@@ -801,14 +1196,14 @@ static float L2SqrVecSetInitPreCalc(const vectorset* a, const vectorset* b, uint
     // level = 0;
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
 
-    uint8_t fineEdgeMaxlen = 120;
+    uint8_t fineEdgeMaxlen = 130;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
     #elif defined(USE_AVX)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
     #else 
-    L2Sqrfunc_ = L2Sqr;
+    L2Sqrfunc_ = InnerProductDistance;
     #endif
     uint8_t a_vecnum = (uint8_t) std::min(a->vecnum, (size_t)fineEdgeMaxlen);
     uint8_t b_vecnum = (uint8_t) std::min(b->vecnum, (size_t)fineEdgeMaxlen);
@@ -858,14 +1253,14 @@ static std::pair<float, float> L2SqrVecSetInitPreCalcReturn2(const vectorset* a,
     // level = 0;
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
 
-    uint8_t fineEdgeMaxlen = 120;
+    uint8_t fineEdgeMaxlen = 130;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
     #elif defined(USE_AVX)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
     #else 
-    L2Sqrfunc_ = L2Sqr;
+    L2Sqrfunc_ = InnerProductDistance;
     #endif
     uint8_t a_vecnum = (uint8_t) std::min(a->vecnum, (size_t)fineEdgeMaxlen);
     uint8_t b_vecnum = (uint8_t) std::min(b->vecnum, (size_t)fineEdgeMaxlen);
@@ -917,13 +1312,13 @@ static float L2SqrVecSetMapCalc(const vectorset* a, const vectorset* b, const ve
     
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX512;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
     #elif defined(USE_AVX)
-    L2Sqrfunc_ = L2SqrSIMD16ExtAVX;
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
     #else 
-    L2Sqrfunc_ = L2Sqr;
+    L2Sqrfunc_ = InnerProductDistance;
     #endif
-    uint8_t fineEdgeMaxlen = 120;
+    uint8_t fineEdgeMaxlen = 130;
     uint8_t a_vecnum = (uint8_t) std::min(a->vecnum, (size_t)fineEdgeMaxlen);
     uint8_t b_vecnum = (uint8_t) std::min(b->vecnum, (size_t)fineEdgeMaxlen);
     uint8_t c_vecnum = (uint8_t) std::min(c->vecnum, (size_t)fineEdgeMaxlen);

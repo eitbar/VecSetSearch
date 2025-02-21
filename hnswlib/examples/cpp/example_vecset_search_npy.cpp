@@ -789,7 +789,7 @@ int main() {
     int dataset = 0;
     bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = false;
+    bool rebuild = true;
     bool reconnect = false;
     int dist_metric = 1;
     int multi_entries_num = 40;
@@ -812,7 +812,7 @@ int main() {
                 index_file = "../examples/localIndex/95k_single_summax_l2.bin";
             } else {
                 ground_truth_file = "../examples/caches/ground_truth_single_summax_l2_top100.txt";
-                index_file = "../examples/localIndex/8m_emd_l2.bin";
+                index_file = "../examples/localIndex/8m_emd_ip.bin";
             }
         } else {
             if (test_subset) {
@@ -892,105 +892,105 @@ int main() {
         solution.load(index_file, VECTOR_DIM, base);
     }
 
-    for (int l = 5; l <= 5; l++) {
-        std::cout << "testing error " << (float) l / 20 << " " << (float) (l + 1) / 20 << std::endl;
-        std::string noise_q_name, noise_bf;
-        std::string original_q_name = "/home/zhoujin/data/noise_query_msmacro/origin_query.npy";
-        if (l == 1) {
-            noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_1.npy";
-            noise_bf = "/home/zhoujin/data/noise_query_msmacro/1.txt";
-        } else if (l == 2) {
-            noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_2.npy";
-            noise_bf = "/home/zhoujin/data/noise_query_msmacro/2.txt";
-        } else if (l == 3) {
-            noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_3.npy";
-            noise_bf = "/home/zhoujin/data/noise_query_msmacro/3.txt";
-        } else if (l == 4) {
-            noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_4.npy";
-            noise_bf = "/home/zhoujin/data/noise_query_msmacro/4.txt";
-        } else if (l == 5) {
-            noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_5.npy";
-            noise_bf = "/home/zhoujin/data/noise_query_msmacro/5.txt";
-        }
+    // for (int l = 5; l <= 5; l++) {
+    //     std::cout << "testing error " << (float) l / 20 << " " << (float) (l + 1) / 20 << std::endl;
+    //     std::string noise_q_name, noise_bf;
+    //     std::string original_q_name = "/home/zhoujin/data/noise_query_msmacro/origin_query.npy";
+    //     if (l == 1) {
+    //         noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_1.npy";
+    //         noise_bf = "/home/zhoujin/data/noise_query_msmacro/1.txt";
+    //     } else if (l == 2) {
+    //         noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_2.npy";
+    //         noise_bf = "/home/zhoujin/data/noise_query_msmacro/2.txt";
+    //     } else if (l == 3) {
+    //         noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_3.npy";
+    //         noise_bf = "/home/zhoujin/data/noise_query_msmacro/3.txt";
+    //     } else if (l == 4) {
+    //         noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_4.npy";
+    //         noise_bf = "/home/zhoujin/data/noise_query_msmacro/4.txt";
+    //     } else if (l == 5) {
+    //         noise_q_name = "/home/zhoujin/data/noise_query_msmacro/disturbed_query_5.npy";
+    //         noise_bf = "/home/zhoujin/data/noise_query_msmacro/5.txt";
+    //     }
 
-        // std::vector<float> original_query_data;
-        // std::vector<vectorset> original_query; 
-        // original_query_data.resize((long long) 100 * 128 * 32);   
-        // load_noise_query(original_query_data, original_query, original_q_name);
-        std::vector<float> noise_query_data;
-        std::vector<vectorset> noise_query;   
-        noise_query_data.resize((long long) 100 * 128 * 32);   
-        load_noise_query(noise_query_data, noise_query, noise_q_name);
-        std::vector<std::vector<std::pair<int, float>>> noise_ground_truth_cf(
-            100, std::vector<std::pair<int, float>>(1000, {0, 0.0f})
-        );
-        std::vector<int> qid_list = {9, 30, 35, 43, 58, 60, 77, 83, 86, 90, 92, 93}; 
-        readGroundTruth(noise_bf, noise_ground_truth_cf);
-        std::cout << noise_ground_truth_cf[0][0].first << " " << noise_ground_truth_cf[0][0].second << std::endl;
-        std::cout << hnswlib::L2SqrVecSet(&noise_query[0], &base[noise_ground_truth_cf[0][0].first], 0) << std::endl;
-        // for (int i =0; i< 128; i++) {
-        //     std::cout << noise_query_data[i] << " ";
-        // }
-        std::cout<<std::endl;
-        std::vector<std::pair<int, float>> solution_indices;
-        Solution newsolution;
-        newsolution.load(index_file, VECTOR_DIM, base);
-        for (int ef = 100; ef <= 2000; ef+= 100) {
-            std::cout << "ef: " << ef << std::endl;
-            double all_noise_query_recall_before_add = 0;
-            for (int i = 0; i < 100; i++) {
-                std::cout << "=======" << i << "=======" << std::endl;
-                for (int k = 0; k < 128; k++) {
-                    std::cout << noise_query[i].data[k] << " ";
-                }
-                std::cout << std::endl;
-                std::cout << "=======" <<std::endl;
-                for (int k = 0; k < 10; k++) {
-                    std::cout << noise_ground_truth_cf[i][k].first << " " << noise_ground_truth_cf[i][k].second << " " << hnswlib::L2SqrVecSet(&noise_query[i], &base[noise_ground_truth_cf[i][k].first], 0) << std::endl;
-                }
-                std::cout << "=======" <<std::endl;
-                solution_indices.clear();
-                double query_time = newsolution.search(noise_query[i], 100, ef, solution_indices);
-                std::sort(solution_indices.begin(), solution_indices.end(),
-                [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
-                    return a.second < b.second;
-                });
-                double noise_query_recall_before_add = calculate_recall(solution_indices, noise_ground_truth_cf[i]);
-                std::cout << noise_query_recall_before_add << std::endl;
-                for (int k = 0; k < 10; k++) {
-                    std::cout << solution_indices[k].first << " " << solution_indices[k].second << " " << hnswlib::L2SqrVecSet(&noise_query[i], &base[solution_indices[k].first], 0) << std::endl;
-                }
-                std::cout << "=======" <<std::endl;
-                all_noise_query_recall_before_add += noise_query_recall_before_add;
-                continue;
+    //     // std::vector<float> original_query_data;
+    //     // std::vector<vectorset> original_query; 
+    //     // original_query_data.resize((long long) 100 * 128 * 32);   
+    //     // load_noise_query(original_query_data, original_query, original_q_name);
+    //     std::vector<float> noise_query_data;
+    //     std::vector<vectorset> noise_query;   
+    //     noise_query_data.resize((long long) 100 * 128 * 32);   
+    //     load_noise_query(noise_query_data, noise_query, noise_q_name);
+    //     std::vector<std::vector<std::pair<int, float>>> noise_ground_truth_cf(
+    //         100, std::vector<std::pair<int, float>>(1000, {0, 0.0f})
+    //     );
+    //     std::vector<int> qid_list = {9, 30, 35, 43, 58, 60, 77, 83, 86, 90, 92, 93}; 
+    //     readGroundTruth(noise_bf, noise_ground_truth_cf);
+    //     std::cout << noise_ground_truth_cf[0][0].first << " " << noise_ground_truth_cf[0][0].second << std::endl;
+    //     std::cout << hnswlib::L2SqrVecSet(&noise_query[0], &base[noise_ground_truth_cf[0][0].first], 0) << std::endl;
+    //     // for (int i =0; i< 128; i++) {
+    //     //     std::cout << noise_query_data[i] << " ";
+    //     // }
+    //     std::cout<<std::endl;
+    //     std::vector<std::pair<int, float>> solution_indices;
+    //     Solution newsolution;
+    //     newsolution.load(index_file, VECTOR_DIM, base);
+    //     for (int ef = 100; ef <= 2000; ef+= 100) {
+    //         std::cout << "ef: " << ef << std::endl;
+    //         double all_noise_query_recall_before_add = 0;
+    //         for (int i = 0; i < 100; i++) {
+    //             std::cout << "=======" << i << "=======" << std::endl;
+    //             for (int k = 0; k < 128; k++) {
+    //                 std::cout << noise_query[i].data[k] << " ";
+    //             }
+    //             std::cout << std::endl;
+    //             std::cout << "=======" <<std::endl;
+    //             for (int k = 0; k < 10; k++) {
+    //                 std::cout << noise_ground_truth_cf[i][k].first << " " << noise_ground_truth_cf[i][k].second << " " << hnswlib::L2SqrVecSet(&noise_query[i], &base[noise_ground_truth_cf[i][k].first], 0) << std::endl;
+    //             }
+    //             std::cout << "=======" <<std::endl;
+    //             solution_indices.clear();
+    //             double query_time = newsolution.search(noise_query[i], 100, ef, solution_indices);
+    //             std::sort(solution_indices.begin(), solution_indices.end(),
+    //             [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
+    //                 return a.second < b.second;
+    //             });
+    //             double noise_query_recall_before_add = calculate_recall(solution_indices, noise_ground_truth_cf[i]);
+    //             std::cout << noise_query_recall_before_add << std::endl;
+    //             for (int k = 0; k < 10; k++) {
+    //                 std::cout << solution_indices[k].first << " " << solution_indices[k].second << " " << hnswlib::L2SqrVecSet(&noise_query[i], &base[solution_indices[k].first], 0) << std::endl;
+    //             }
+    //             std::cout << "=======" <<std::endl;
+    //             all_noise_query_recall_before_add += noise_query_recall_before_add;
+    //             continue;
 
-                // solution_indices.clear();
-                // double query_time = newsolution.search(query[i], 100, 200, solution_indices);
-                // double original_query_recall_before_add = calculate_recall(solution_indices, bf_ground_truth_cf[i]);
-                // // double query_time = newsolution.search(query[qid_list[i]], 100, 200, solution_indices);
-                // // double original_query_recall_before_add = calculate_recall(solution_indices, bf_ground_truth_cf[qid_list[i]]);
-                // solution_indices.clear();
-                // query_time = newsolution.search(noise_query[i], 100, 200, solution_indices);
-                // double noise_query_recall_before_add = calculate_recall(solution_indices, noise_ground_truth_cf[i]);
-                // // for (int j = 0; j < 9; j++) {
-                // //     newsolution.addEdge(bf_ground_truth_cf[qid_list[i]][j].first, bf_ground_truth_cf[qid_list[i]][j + 1].first);
-                // // }
-                // for (int j = 0; j < 9; j++) {
-                //     newsolution.addEdge(bf_ground_truth_cf[i][j].first, bf_ground_truth_cf[i][j + 1].first);
-                // }
-                // solution_indices.clear();
-                // query_time = newsolution.search(query[i], 100, 200, solution_indices);
-                // double original_query_recall_after_add = calculate_recall(solution_indices, bf_ground_truth_cf[i]);
-                // // query_time = newsolution.search(query[qid_list[i]], 100, 200, solution_indices);
-                // // double original_query_recall_after_add = calculate_recall(solution_indices, bf_ground_truth_cf[qid_list[i]]);
-                // solution_indices.clear();
-                // query_time = newsolution.search(noise_query[i], 100, 200, solution_indices);
-                // double noise_query_recall_after_add = calculate_recall(solution_indices, noise_ground_truth_cf[i]);
-                // std::cout << i << " : " << original_query_recall_before_add << " " << original_query_recall_after_add << " | " << noise_query_recall_before_add << " " << noise_query_recall_after_add << std::endl;
-            }
-            std::cout << all_noise_query_recall_before_add / 100 << std::endl;
-        }
-    }
+    //             // solution_indices.clear();
+    //             // double query_time = newsolution.search(query[i], 100, 200, solution_indices);
+    //             // double original_query_recall_before_add = calculate_recall(solution_indices, bf_ground_truth_cf[i]);
+    //             // // double query_time = newsolution.search(query[qid_list[i]], 100, 200, solution_indices);
+    //             // // double original_query_recall_before_add = calculate_recall(solution_indices, bf_ground_truth_cf[qid_list[i]]);
+    //             // solution_indices.clear();
+    //             // query_time = newsolution.search(noise_query[i], 100, 200, solution_indices);
+    //             // double noise_query_recall_before_add = calculate_recall(solution_indices, noise_ground_truth_cf[i]);
+    //             // // for (int j = 0; j < 9; j++) {
+    //             // //     newsolution.addEdge(bf_ground_truth_cf[qid_list[i]][j].first, bf_ground_truth_cf[qid_list[i]][j + 1].first);
+    //             // // }
+    //             // for (int j = 0; j < 9; j++) {
+    //             //     newsolution.addEdge(bf_ground_truth_cf[i][j].first, bf_ground_truth_cf[i][j + 1].first);
+    //             // }
+    //             // solution_indices.clear();
+    //             // query_time = newsolution.search(query[i], 100, 200, solution_indices);
+    //             // double original_query_recall_after_add = calculate_recall(solution_indices, bf_ground_truth_cf[i]);
+    //             // // query_time = newsolution.search(query[qid_list[i]], 100, 200, solution_indices);
+    //             // // double original_query_recall_after_add = calculate_recall(solution_indices, bf_ground_truth_cf[qid_list[i]]);
+    //             // solution_indices.clear();
+    //             // query_time = newsolution.search(noise_query[i], 100, 200, solution_indices);
+    //             // double noise_query_recall_after_add = calculate_recall(solution_indices, noise_ground_truth_cf[i]);
+    //             // std::cout << i << " : " << original_query_recall_before_add << " " << original_query_recall_after_add << " | " << noise_query_recall_before_add << " " << noise_query_recall_after_add << std::endl;
+    //         }
+    //         std::cout << all_noise_query_recall_before_add / 100 << std::endl;
+    //     }
+    // }
 
 
     if (reconnect) {
@@ -1092,8 +1092,12 @@ int main() {
         }
         return 0;
     }
-
-    for (int tmpef = 1000; tmpef <= 1000; tmpef += 100) {
+    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+    //     std::cout << hnswlib::L2SqrVecEMD(&query[i], &base[i], 0) << std::endl;
+    //     std::cout << hnswlib::L2SqrVecEMD(&base[i], &query[i], 0) << std::endl;
+    // }
+    // return 0;
+    for (int tmpef = 100; tmpef <= 2000; tmpef += 100) {
         double total_recall = 0.0;
         double total_cf_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
