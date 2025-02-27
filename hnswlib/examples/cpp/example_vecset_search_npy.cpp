@@ -70,6 +70,32 @@ public:
         });
     }
 
+    void searchCluster(const vectorset query, const vectorset query_cluster, int k, std::vector<std::pair<int, float>>& res) const {
+        // res.clear();
+        res.clear();
+        std::vector<std::pair<float, int>> distances;
+        std::priority_queue<std::pair<float, int>> max_heap;
+        int base_offset = 0;
+        for (size_t i = 0; i < base_vectors.size(); ++i) {
+            float chamfer_dist = hnswlib::L2SqrCluster4Search(&query_cluster, &base_vectors[i], 0);
+            if (max_heap.size() < static_cast<size_t>(k)) {
+                max_heap.emplace(chamfer_dist, static_cast<int>(i));
+            } 
+            else if (chamfer_dist < max_heap.top().first) {
+                max_heap.pop();
+                max_heap.emplace(chamfer_dist, static_cast<int>(i));
+            }
+        }
+        while (!max_heap.empty()) {
+            res.emplace_back(max_heap.top().second, max_heap.top().first);
+            max_heap.pop();
+        }
+        // 按距离从小到大排序
+        std::sort(res.begin(), res.end(), [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
+            return a.second < b.second;
+        });
+    }
+
 private:
     int dimension;
     std::vector<vectorset> base_vectors;
@@ -89,7 +115,7 @@ public:
             if (i % 1000 == 0) {
                 std::cout << i << std::endl;
             }
-            alg_hnsw->addPoint(&base_vectors[i], i);            
+            alg_hnsw->addPoint(&base_vectors[i], i);
         }
         alg_hnsw->setEf(200);
         std::cout << "Build time: " << omp_get_wtime() - time << "sec"<<std::endl;
@@ -109,6 +135,43 @@ public:
             result.pop();
         }
         double end_time = omp_get_wtime();
+        return end_time - start_time;
+    }
+
+    double search_with_cluster(const vectorset query, std::vector<float>& query_cluster_scores, std::vector<float>& center_data, int k, int ef, std::vector<std::pair<int, float>>& res) const {
+        res.clear();
+        alg_hnsw->setEf(ef);
+        double start_time = omp_get_wtime();
+        // query_cluster_scores.resize(NUM_QUERY_SETS * 262144 * 32);
+        for (int j = 0; j < 32; j++) {
+            for (int k = 0; k < 262144; k++) {
+                float tt  = hnswlib::InnerProductDistance((&query)->data + j * 128, &center_data[k * 128], &(&query)->dim);
+                query_cluster_scores[j * 262144 + k] =  tt;
+            }
+        }
+        vectorset query_cluster = vectorset(query_cluster_scores.data(), nullptr, 262144, 32);
+
+        double cluster_time = omp_get_wtime();
+        std::cout << cluster_time - start_time << std::endl;
+        // std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnFineEdge(&query, k);
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnCluster(&query_cluster, ef);
+        // std::cout << alg_hnsw->metric_hops << ' ' << alg_hnsw->metric_distance_computations << std::endl;
+        // alg_hnsw->metric_hops = 0;
+        // alg_hnsw->metric_distance_computations = 0;
+        double search_time = omp_get_wtime();
+        std::cout << search_time - cluster_time << std::endl;
+        for(int i = 0; i < ef; i++){
+            hnswlib::labeltype ind = result.top().second;
+            res.push_back(std::make_pair(ind, hnswlib::L2SqrVecCF(&query, &base_vectors[ind], 0)));
+            result.pop();
+        }
+        std::partial_sort(res.begin(), res.begin() + k, res.end(),
+                      [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
+                          return a.second < b.second;  // 按 float 排序，越小越靠前
+                      });
+        res.resize(k);
+        double end_time = omp_get_wtime();
+        std::cout << "cluster: " << cluster_time - start_time << " search time: " << search_time - cluster_time << " rerank time: " << end_time - search_time << std::endl;
         return end_time - start_time;
     }
 
@@ -136,6 +199,9 @@ public:
         space_ptr = new hnswlib::L2VSSpace(d);
         alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 16, 80);
         alg_hnsw->loadIndex(location, space_ptr);
+        // for (hnswlib::labeltype i = 0; i < 100; i++){
+        //     alg_hnsw->testDataLabel(i * 10000);
+        // }
         // #pragma omp parallel for schedule(dynamic)
         for(hnswlib::labeltype i = 0; i < base.size(); i++){
             alg_hnsw->loadDataAddress(&base[i], i);            
@@ -277,36 +343,71 @@ void demo_test_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
 
 
 void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& base,
-                       std::vector<float>& query_data, std::vector<vectorset>& query, 
+                       std::vector<float>& query_data, std::vector<vectorset>& query,
+                       std::vector<int>& base_data_codes, std::vector<float>& center_data,
                        int file_numbers, std::vector<std::vector<int>>& qrels) {
     long long offset = 0;  
-    long long all_elements = 0;   
+    long long all_elements = 0; 
+    long long code_offset = 0;
+    long long all_codes = 0;  
+    std::string cembfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/new_center_code/centroids.npy";
     std::string qembfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qembs_32_6980.npy";
     std::string qrelfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qrels_6980.tsv";    
 
     for (int i = 0; i < file_numbers; i++) {
         std::string embfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/encoding" + std::to_string(i) + "_float16.npy";
+        std::string codesfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/new_center_code/doc_codes_" + std::to_string(i) + ".npy";
         std::string lensfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/doclens" + std::to_string(i) + ".npy";
         cnpy::NpyArray arr_npy = cnpy::npy_load(embfile_name);
+        cnpy::NpyArray codes_npy = cnpy::npy_load(codesfile_name);
         cnpy::NpyArray lens_npy = cnpy::npy_load(lensfile_name);
         uint16_t* raw_vec_data = arr_npy.data<uint16_t>();
         size_t num_elements = arr_npy.shape[0] * arr_npy.shape[1];
-        // int* lens_data = lens_npy.data<int>();
+
         std::complex<int>* lens_data = lens_npy.data<std::complex<int>>();
         size_t doc_num = lens_npy.shape[0];
+
+        int32_t* codes_data = codes_npy.data<int32_t>();
+        size_t num_codes = codes_npy.shape[0];
+        // std::cout << codes_npy.word_size << std::endl;
+        // std::cout << sizeof(int32_t) << std::endl;
+        // std::cout << sizeof(int16_t) << std::endl;
+        // std::cout << sizeof(int) << std::endl;
+        std::cout << num_codes << std::endl;
+        std::cout << all_codes << std::endl;
         std::cout << "Processing file " << i << std::endl;
-        // assert (doc_num == 25000);
         
         for (long long i = 0; i < num_elements; ++i) {
             base_data[all_elements + i] = (static_cast<float>(half_to_float(raw_vec_data[i])));
         }
+        // std::cout << "?" << std::endl;
+        for (long long i = 0; i < num_codes; ++i) {
+            base_data_codes[all_codes + i] = static_cast<int>(codes_data[i]);
+            if (i < 10) {
+                // std::cout << i << " " << all_codes + i << std::endl;
+                std::cout << codes_data[i] << " ";
+                std::cout << base_data_codes[all_codes + i] << " ";
+            }
+        }
+        std::cout << std::endl;
+
         all_elements += num_elements;
+        all_codes += num_codes;
         
         for (int i = 0; i < doc_num; ++i) {
-            base.push_back(vectorset(base_data.data() + offset, VECTOR_DIM, lens_data[i].real()));
+            base.push_back(vectorset(base_data.data() + offset, base_data_codes.data() + code_offset, VECTOR_DIM, lens_data[i].real()));
             offset += lens_data[i].real() * VECTOR_DIM;
+            code_offset += lens_data[i].real();
         }
     }
+
+    cnpy::NpyArray cembs_npy = cnpy::npy_load(cembfile_name);
+    uint16_t* raw_cembs_data = cembs_npy.data<uint16_t>();
+    size_t num_cembs_elements = cembs_npy.shape[0] * cembs_npy.shape[1];
+    for (size_t i = 0; i < num_cembs_elements; ++i) {
+        center_data[i] = (static_cast<float>(half_to_float(raw_cembs_data[i])));
+    }
+    // std::cout << num_cembs_elements << std::endl;
 
     cnpy::NpyArray qembs_npy = cnpy::npy_load(qembfile_name);
 
@@ -321,7 +422,7 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
     }
     
     for (int i = 0; i < q_num; ++i) {
-        query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, 32));
+        query.push_back(vectorset(query_data.data() + q_offset, nullptr, VECTOR_DIM, 32));
         q_offset += 32 * VECTOR_DIM;
     }
     qrels.resize(q_num + 1);
@@ -681,9 +782,9 @@ double calculate_recall_for_msmacro(const std::vector<std::pair<int, float>>& so
     std::unordered_set<int> ground_truth_set;
     for (const auto& pair : solution_indices) {
         solution_set.insert(pair.first);
-        if (solution_set.size() >= K) {
-            break;
-        }
+        // if (solution_set.size() >= K) {
+        //     break;
+        // }
     }
     for (const auto& pid : ground_truth_indices) {
         ground_truth_set.insert(pid);
@@ -711,9 +812,9 @@ double calculate_recall(const std::vector<std::pair<int, float>>& solution_indic
     for (const auto& pair : solution_indices) {
         solution_set.insert(pair.first);
         // std::cout << pair.first << " ";
-        if (solution_set.size() >= K) {
-            break;
-        }
+        // if (solution_set.size() >= K) {
+        //     break;
+        // }
     }
     // std::cout << std::endl;
 
@@ -779,17 +880,22 @@ int main() {
     std::vector<float> query_data;
     std::vector<vectorset> base;
     std::vector<vectorset> query;
+    std::vector<vectorset> query_center;
+    std::vector<int> base_data_codes;
+    std::vector<float> center_data;
+    std::vector<float> query_cluster_scores;
+    std::vector<float> test_query_cluster_scores;
     std::vector<std::vector<int>> qrels;
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth(
-        6980, std::vector<std::pair<int, float>>(1000, {0, 0.0f})
+        6980, std::vector<std::pair<int, float>>(4000, {0, 0.0f})
     );
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth_cf(
-        6980, std::vector<std::pair<int, float>>(1000, {0, 0.0f})
+        6980, std::vector<std::pair<int, float>>(4000, {0, 0.0f})
     );
     int dataset = 0;
     bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = true;
+    bool rebuild = false;
     bool reconnect = false;
     int dist_metric = 1;
     int multi_entries_num = 40;
@@ -811,8 +917,8 @@ int main() {
                 ground_truth_file = "../examples/caches/95k_ground_truth_single_summax_l2_top100.txt";
                 index_file = "../examples/localIndex/95k_single_summax_l2.bin";
             } else {
-                ground_truth_file = "../examples/caches/ground_truth_single_summax_l2_top100.txt";
-                index_file = "../examples/localIndex/8m_emd_ip.bin";
+                ground_truth_file = "../examples/caches/ground_truth_cluster_ip_top4k.txt";
+                index_file = "../examples/localIndex/8m_emd_l2.bin";
             }
         } else {
             if (test_subset) {
@@ -829,6 +935,9 @@ int main() {
         index_file = "../examples/localIndex/lotte_emd_l2.bin";
     }
 
+    // Solution testsolution;
+    // testsolution.load(index_file, VECTOR_DIM, base);
+
     if (dataset == 0) {
         if (test_subset) {
             // test on collected 95k msmacro subset
@@ -839,7 +948,10 @@ int main() {
             // test on all msmacro dataset
             base_data.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 128 * 80);
             query_data.resize((long long) NUM_QUERY_SETS * 128 * 32 + 1);
-            load_from_msmarco(base_data, base, query_data, query, MSMACRO_TEST_NUMBER, qrels);
+            base_data_codes.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 80);
+            center_data.resize((long long) 262144 * 128);
+            std::cout<< (long long) 25000 * MSMACRO_TEST_NUMBER * 80 << std::endl;
+            load_from_msmarco(base_data, base, query_data, query, base_data_codes, center_data, MSMACRO_TEST_NUMBER, qrels);
         }
     }
     else if (dataset == 1) {
@@ -848,6 +960,21 @@ int main() {
         load_from_lotte(base_data, base, query_data, query, LOTTE_TEST_NUMBER, qrels);
     }
 
+    query_cluster_scores.resize(NUM_QUERY_SETS * 262144 * 32);
+    for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+        for (int j = 0; j < 32; j++) {
+            for (int k = 0; k < 262144; k++) {
+                float tt  = hnswlib::InnerProductDistance((&query[i])->data + j * 128, &center_data[k * 128], &(&query[i])->dim);
+                if (i <= 1 && (k < 100 || k > 262100)) {
+                    std::cout << i << " " << j <<  " " << k << " " << tt << std::endl;
+                }
+                query_cluster_scores[i * 262144 * 32 + j * 262144 + k] =  tt;
+            }
+        }
+        query_center.push_back(vectorset(query_cluster_scores.data() + i * 262144 * 32, nullptr, 262144, 32));
+    }
+    test_query_cluster_scores.resize(262144 * 32);
+
     if (!load_bf_from_cache) {
         GroundTruth ground_truth;
         ground_truth.build(VECTOR_DIM, base);
@@ -855,13 +982,13 @@ int main() {
         #pragma omp parallel for schedule(dynamic)
         for (int i = 0; i < NUM_QUERY_SETS; ++i) {
             // std::vector<std::pair<int, float>> ground_truth_indices;
-            std::cout << i << std::endl;
-            ground_truth.search(query[i], K, bf_ground_truth[i]);
+            // std::cout << i << std::endl;
+            ground_truth.searchCluster(query[i], query_center[i], 4000, bf_ground_truth[i]);
         }
         std::cout<< "Generate BF Groundtruth Finish!" <<std::endl;
         std::ofstream outFile(ground_truth_file);
         for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-            for (int j = 0; j < K; j++) {
+            for (int j = 0; j < 4000; j++) {
                 outFile << bf_ground_truth[i][j].first << " " << bf_ground_truth[i][j].second << " ";
             }
             outFile << "\n";
@@ -882,6 +1009,15 @@ int main() {
     //         std::cout << i << ' ' << emd_dist << ' ' << chamfer_dist << std::endl;
     //     }
     // }
+    // return 0;
+
+
+    // for (int i = 0; i < 32; i ++) {
+    //     for (int j = 0; j < 500; j ++) {
+    //         std::cout << i << " " << j << " " << query_cluster_scores[9 * 500 * 32 + i * 500 + j] << std::endl;
+    //     }
+    // }
+    // std::cout << hnswlib::L2SqrCluster4Search(&query_center[9], &base[3338], 0) << std::endl;
     // return 0;
 
     Solution solution;
@@ -992,7 +1128,6 @@ int main() {
     //     }
     // }
 
-
     if (reconnect) {
         
         int add_success_count = 0;
@@ -1097,7 +1232,9 @@ int main() {
     //     std::cout << hnswlib::L2SqrVecEMD(&base[i], &query[i], 0) << std::endl;
     // }
     // return 0;
-    for (int tmpef = 100; tmpef <= 2000; tmpef += 100) {
+
+
+    for (int tmpef = 200; tmpef <= 3000; tmpef += 100) {
         double total_recall = 0.0;
         double total_cf_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
@@ -1146,7 +1283,7 @@ int main() {
             // std::cout<<entry_points.size()<<std::endl;
             // double query_time = solution.search(query[i], K, solution_indices);
             // double query_time = solution.searchFromEntries(query[i], K, tmpef, entry_points, solution_indices);
-            double query_time = solution.search(query[i], K, tmpef, solution_indices);
+            double query_time = solution.search_with_cluster(query[i], test_query_cluster_scores, center_data, K, tmpef, solution_indices);
 
             // solution.addEdge(solution_indices[0].first, qrels[i][0]);
             // for (int k = 0; k < 10; k++) {

@@ -942,6 +942,31 @@ static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
     return sum1 / q_vecnum;
 }
 
+static float L2SqrCluster4Search(const vectorset* q, const vectorset* p, int level) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    level = 0;
+    size_t q_vecnum = q->vecnum;
+    size_t p_vecnum = p->vecnum;
+    // for (int i = 0; i < 32; i ++) {
+    //     for (int j = 0; j < 500; j ++) {
+    //         std::cout << i << " " << j << " " << *(q->data + i * 500 + j) << std::endl;
+    //     }
+    // }
+    #pragma omp simd reduction(+:sum1)
+    for (size_t i = 0; i < q->vecnum; ++i) {
+        float maxDist = 99999.9f;
+        for (size_t j = 0; j < p_vecnum; ++j) {
+            int center_id =  *(p->codes + j);
+            // std::cout << center_id << " " << *(q->data + i * 500 + center_id) << " ";
+            maxDist = std::min(maxDist, *(q->data + i * 262144 + center_id));
+        }
+        // std::cout << maxDist << " " << i << std::endl;
+        sum1 += maxDist;
+    }
+    return sum1 / q->vecnum;
+}
+
 
 static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int level) {
     float sum1 = 0.0f;
