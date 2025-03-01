@@ -7,6 +7,7 @@
 #include <omp.h> 
 #include <Eigen/Dense>
 #include <cassert>
+#include <cblas.h>
 #include "../otlib/EMD.h"
 
 inline std::atomic<int> l2_sqr_call_count(0);
@@ -764,14 +765,91 @@ static float L2SqrVecCF(const vectorset* q, const vectorset* p, int level) {
     for (size_t i = 0; i < q_vecnum; ++i) {
         const float* vec_q = q->data + i * (level + 1) * q->dim;
         float maxDist = 99999.9f;
+        // #pragma omp simd reduction(min:maxDist)
         for (size_t j = 0; j < p_vecnum; ++j) {
             const float* vec_p = p->data + j * p->dim;
+            __builtin_prefetch(vec_p + p->dim, 0, 1);  // 预取下一行数据
             float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
             maxDist = std::min(maxDist, dist);
         }
         sum1 += maxDist;
     }
     return sum1;
+}
+
+float max_inner_product_sum(const float* A, const float* B, int n, int m, int d) {
+    // **使用 Eigen::Map<> 映射 A 和 B，不复制数据**
+    Eigen::Map<const Eigen::MatrixXf> A_mat(A, n, d);
+    Eigen::Map<const Eigen::MatrixXf> B_mat(B, m, d);
+    // Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> A_mat(A, n, d);
+    // Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> B_mat(B, m, d);
+    Eigen::MatrixXf C = A_mat * B_mat.transpose();
+    return C.rowwise().maxCoeff().sum();
+}
+
+static float L2SqrVecEigenCF(const vectorset* q, const vectorset* p, int level) {
+    float sum1 = max_inner_product_sum(q->data, p->data, q->vecnum, p->vecnum, q->dim);
+    return 1 - sum1 / q->vecnum;
+}
+
+void fast_dot_product_blas(int n, int d, int m, float* A, float* B, float* C) {
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                n, m, d,
+                1.0f, A, d,
+                B, d,
+                0.0f, C, m);
+}
+
+static float L2SqrVecBlasCF(const vectorset* q, const vectorset* p, float* C, int level) {
+    float sum1 = 0.0f;
+    size_t n = q->vecnum;
+    size_t m = p->vecnum;
+    // std::vector<float> C(n * m);
+    fast_dot_product_blas(n, q->dim, m, q->data, p->data, C);
+    #pragma omp simd reduction(+:sum1)
+    for (size_t i = 0; i < n; ++i) {
+        float maxDist = -9.0f;
+        for (size_t j = 0; j < m; ++j) {
+            maxDist = std::max(maxDist, C[i * m + j]);
+        }
+        sum1 += 1 - maxDist;
+    }
+    return sum1;
+}
+
+
+static float L2SqrVecGetDistance(const float* q, const float* p, float* C, int n, int m, int d) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
+    float (*L2Sqrfunc_)(const void*, const void*, const void*);
+    #if defined(USE_AVX512)
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
+    #elif defined(USE_AVX)
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
+    #else 
+    L2Sqrfunc_ = InnerProductDistance;
+    #endif
+    // std::cout << q[0] << std::endl;
+    // std::cout << p[0] << std::endl;
+    // std::cout << C[0] << std::endl;
+    // std::cout << n << ' ' << m << ' ' << d << std::endl;
+    // #pragma omp parallel for
+    for (size_t i = 0; i < n; ++i) {
+        const float* vec_q = q + i * d;
+        for (size_t j = 0; j < m; ++j) {
+            const float* vec_p = p + j * d;
+            C[i * m + j] = L2Sqrfunc_(vec_q, vec_p, &d);
+        }
+    }
+    return 0;
+}
+
+static float L2SqrVecBlasDistance(const vectorset* q, const vectorset* p, float* C, int n, int m, int d) {
+    float sum1 = 0.0f;
+    std::vector<float> C2(n * m);
+    fast_dot_product_blas(n, d, m, q->data, p->data, C);
+    return 0;
 }
 
 // static float L2SqrVecEMD(const vectorset* q, const vectorset* p, int level) {
@@ -942,28 +1020,57 @@ static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
     return sum1 / q_vecnum;
 }
 
+float compute_with_eigen(const float* data, const int* codes, int n, int d, int m) {
+    Eigen::Map<const Eigen::MatrixXf> data_mat(data, n, d);
+    Eigen::VectorXf maxDist = Eigen::VectorXf::Constant(n, -9.0f);
+
+    // 遍历所有 center_id，找到最大值
+    for (size_t j = 0; j < m; ++j) {
+        maxDist = maxDist.cwiseMax(data_mat.col(codes[j])); // Eigen 自动向量化
+    }
+
+    // 计算 sum1
+    return (1.0f - maxDist.array()).sum();
+}
+
+// static float L2SqrCluster4Search(const vectorset* q, const vectorset* p, int level) {
+//     //l2_sqr_call_count.fetch_add(1, std::memory_order_relaxed);
+//     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed);
+//     float sum1 = 0.0f;
+//     float sum2 = 0.0f;
+//     level = 0;
+//     size_t q_vecnum = q->vecnum;
+//     size_t p_vecnum = p->vecnum;
+//     // for (int i = 0; i < 32; i ++) {
+//     //     for (int j = 0; j < 500; j ++) {
+//     //         std::cout << i << " " << j << " " << *(q->data + i * 500 + j) << std::endl;
+//     //     }
+//     // }
+//     //std::cout << q->vecnum << " " << q->dim << " " << p->vecnum << std::endl;
+//     // sum1 = compute_with_eigen(q->data, p->codes, q->vecnum, 262144, p->vecnum);
+    
+//     #pragma omp simd reduction(+:sum1)
+//     for (size_t i = 0; i < q->vecnum; ++i) {
+//         float maxDist = -9.9f;
+//         for (size_t j = 0; j < p_vecnum; ++j) {
+//             int center_id =  *(p->codes + j);
+//             maxDist = std::max(maxDist, *(q->data + i * 262144 + center_id));
+//         }
+//         sum1 += 1 - maxDist;
+//     }
+//     return sum1 / q->vecnum;
+// }
+
+
 static float L2SqrCluster4Search(const vectorset* q, const vectorset* p, int level) {
+    l2_sqr_call_count.fetch_add(1, std::memory_order_relaxed);
+    l2_vec_call_count.fetch_add(1, std::memory_order_relaxed);
     float sum1 = 0.0f;
     float sum2 = 0.0f;
     level = 0;
     size_t q_vecnum = q->vecnum;
     size_t p_vecnum = p->vecnum;
-    // for (int i = 0; i < 32; i ++) {
-    //     for (int j = 0; j < 500; j ++) {
-    //         std::cout << i << " " << j << " " << *(q->data + i * 500 + j) << std::endl;
-    //     }
-    // }
-    #pragma omp simd reduction(+:sum1)
-    for (size_t i = 0; i < q->vecnum; ++i) {
-        float maxDist = 99999.9f;
-        for (size_t j = 0; j < p_vecnum; ++j) {
-            int center_id =  *(p->codes + j);
-            // std::cout << center_id << " " << *(q->data + i * 500 + center_id) << " ";
-            maxDist = std::min(maxDist, *(q->data + i * 262144 + center_id));
-        }
-        // std::cout << maxDist << " " << i << std::endl;
-        sum1 += maxDist;
-    }
+    sum1 = compute_with_eigen(q->data, p->codes, q->vecnum, 262144, p->vecnum);
     return sum1 / q->vecnum;
 }
 

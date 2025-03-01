@@ -6,7 +6,9 @@
 #include <limits>
 #include <unordered_set>
 #include <omp.h>
-#include<complex>
+#include <complex>
+#include <cblas.h>
+#include <chrono>  
 #include "../../hnswlib/hnswlib.h"
 #include "../../hnswlib/space_l2.h"
 #include "../../hnswlib/vectorset.h"
@@ -141,25 +143,26 @@ public:
     double search_with_cluster(const vectorset query, std::vector<float>& query_cluster_scores, std::vector<float>& center_data, int k, int ef, std::vector<std::pair<int, float>>& res) const {
         res.clear();
         alg_hnsw->setEf(ef);
+        l2_vec_call_count.store(0);
         double start_time = omp_get_wtime();
         // query_cluster_scores.resize(NUM_QUERY_SETS * 262144 * 32);
-        for (int j = 0; j < 32; j++) {
-            for (int k = 0; k < 262144; k++) {
-                float tt  = hnswlib::InnerProductDistance((&query)->data + j * 128, &center_data[k * 128], &(&query)->dim);
-                query_cluster_scores[j * 262144 + k] =  tt;
-            }
-        }
+        // for (int j = 0; j < 32; j++) {
+        //     for (int k = 0; k < 262144; k++) {
+        //         float tt  = hnswlib::InnerProductDistance((&query)->data + j * 128, &center_data[k * 128], &(&query)->dim);
+        //         query_cluster_scores[j * 262144 + k] =  tt;
+        //     }
+        // }
+        hnswlib::fast_dot_product_blas(262144, 128, 32, center_data.data(), (&query)->data, query_cluster_scores.data());  
+        // hnswlib::fast_dot_product_blas(32, 128, 262144, (&query)->data, center_data.data(), query_cluster_scores.data());  
         vectorset query_cluster = vectorset(query_cluster_scores.data(), nullptr, 262144, 32);
 
         double cluster_time = omp_get_wtime();
-        std::cout << cluster_time - start_time << std::endl;
         // std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnFineEdge(&query, k);
         std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnCluster(&query_cluster, ef);
         // std::cout << alg_hnsw->metric_hops << ' ' << alg_hnsw->metric_distance_computations << std::endl;
         // alg_hnsw->metric_hops = 0;
         // alg_hnsw->metric_distance_computations = 0;
         double search_time = omp_get_wtime();
-        std::cout << search_time - cluster_time << std::endl;
         for(int i = 0; i < ef; i++){
             hnswlib::labeltype ind = result.top().second;
             res.push_back(std::make_pair(ind, hnswlib::L2SqrVecCF(&query, &base_vectors[ind], 0)));
@@ -171,7 +174,7 @@ public:
                       });
         res.resize(k);
         double end_time = omp_get_wtime();
-        std::cout << "cluster: " << cluster_time - start_time << " search time: " << search_time - cluster_time << " rerank time: " << end_time - search_time << std::endl;
+        std::cout << "cluster: " << cluster_time - start_time << " search time: " << search_time - cluster_time << " search calc count: " << l2_vec_call_count.load() << " rerank time: " << end_time - search_time << std::endl;
         return end_time - start_time;
     }
 
@@ -196,6 +199,8 @@ public:
 
     void load(const std::string &location, int d, const std::vector<vectorset>& base) {
         double time = omp_get_wtime();
+        dimension = d;
+        base_vectors = base;
         space_ptr = new hnswlib::L2VSSpace(d);
         alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 16, 80);
         alg_hnsw->loadIndex(location, space_ptr);
@@ -881,9 +886,11 @@ int main() {
     std::vector<vectorset> base;
     std::vector<vectorset> query;
     std::vector<vectorset> query_center;
+    std::vector<vectorset> query_center_col;
     std::vector<int> base_data_codes;
     std::vector<float> center_data;
     std::vector<float> query_cluster_scores;
+    std::vector<float> query_cluster_scores_col;
     std::vector<float> test_query_cluster_scores;
     std::vector<std::vector<int>> qrels;
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth(
@@ -950,7 +957,7 @@ int main() {
             query_data.resize((long long) NUM_QUERY_SETS * 128 * 32 + 1);
             base_data_codes.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 80);
             center_data.resize((long long) 262144 * 128);
-            std::cout<< (long long) 25000 * MSMACRO_TEST_NUMBER * 80 << std::endl;
+            // std::cout<< (long long) 25000 * MSMACRO_TEST_NUMBER * 80 << std::endl;
             load_from_msmarco(base_data, base, query_data, query, base_data_codes, center_data, MSMACRO_TEST_NUMBER, qrels);
         }
     }
@@ -959,21 +966,153 @@ int main() {
         query_data.resize((long long) NUM_QUERT_LOTTE * 128 * 32);
         load_from_lotte(base_data, base, query_data, query, LOTTE_TEST_NUMBER, qrels);
     }
-
-    query_cluster_scores.resize(NUM_QUERY_SETS * 262144 * 32);
-    for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-        for (int j = 0; j < 32; j++) {
-            for (int k = 0; k < 262144; k++) {
-                float tt  = hnswlib::InnerProductDistance((&query[i])->data + j * 128, &center_data[k * 128], &(&query[i])->dim);
-                if (i <= 1 && (k < 100 || k > 262100)) {
-                    std::cout << i << " " << j <<  " " << k << " " << tt << std::endl;
-                }
-                query_cluster_scores[i * 262144 * 32 + j * 262144 + k] =  tt;
-            }
-        }
-        query_center.push_back(vectorset(query_cluster_scores.data() + i * 262144 * 32, nullptr, 262144, 32));
-    }
+    // std::vector<float> C(200 * 200);
+    // double t0 = omp_get_wtime();
+    // for (int i = 0; i < 100; i++) {
+    //     float d = hnswlib::L2SqrVecBlasCF(&query[i], &base[i], C.data(), 0);
+    //     // if (i < 10) std::cout << d << std::endl;
+    // }
+    // query_cluster_scores.resize(NUM_QUERY_SETS * 262144 * 32);
+    // double t1 = omp_get_wtime();
+    // hnswlib::L2SqrVecGetDistance((&query[0])->data, center_data.data(), query_cluster_scores.data(), 32, 262144, 128);    
+    // double t2 = omp_get_wtime();
+    // hnswlib::fast_dot_product_blas(32, 262144, 128, (&query[0])->data, center_data.data(), query_cluster_scores.data());    
+    // double t3 = omp_get_wtime();
+    // std::cout << t2 - t1 << " " << t3 - t2 << std::endl;
+    // return 0;
     test_query_cluster_scores.resize(262144 * 32);
+    // hnswlib::fast_dot_product_blas(32, 128, 262144, (&query[0])->data, center_data.data(), test_query_cluster_scores.data());  
+    // query_cluster_scores.resize(NUM_QUERY_SETS * 262144 * 32);
+    // query_cluster_scores_col.resize(NUM_QUERY_SETS * 262144 * 32);
+    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+    //     for (int j = 0; j < 32; j++) {
+    //         for (int k = 0; k < 262144; k++) {
+    //             float tt  = hnswlib::InnerProductSIMD16ExtSSE((&query[i])->data + j * 128, &center_data[k * 128], &(&query[i])->dim);
+    //             // if (i == 0 && (k < 100 || k > 262100)) {
+    //             //     std::cout << i << " " << j <<  " " << k << " " << tt << std::endl;
+    //             //     std::cout << test_query_cluster_scores[j * 262144 + k] << std::endl;
+    //             // }
+    //             query_cluster_scores[i * 262144 * 32 + j * 262144 + k] =  tt;
+    //             query_cluster_scores_col[i * 262144 * 32 + k * 32 + j] = tt;
+    //         }
+    //     }
+    //     query_center.push_back(vectorset(query_cluster_scores.data() + i * 262144 * 32, nullptr, 262144, 32));
+    //     query_center_col.push_back(vectorset(query_cluster_scores_col.data() + i * 262144 * 32, nullptr, 262144, 32));
+    // }
+
+    // std::random_device rd; 
+    // std::mt19937 gen_int(rd());  // 使用 Mersenne Twister 伪随机数生成器
+    // std::uniform_int_distribution<int> dist_int(0, 25000);  // 设定范围 0 ~ 250000
+
+    // // 生成 20000 个随机数
+    // std::vector<int> random_numbers(20000);
+
+
+    // std::cout << "begin test" << std::endl;
+
+    // double all_time_original_cf = 0.0f;
+    // double all_time_blas_cf = 0.0f;
+    // double all_time_eigen_cf = 0.0f;
+    // std::vector<std::vector<float>> res1(100);
+    // std::vector<std::vector<float>> res2(100);
+    // std::vector<std::vector<float>> res3(100);
+    // std::vector<float> C(32 * 180);
+    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+    //     for (int j = 0; j < 20000; j ++) {
+    //         int num = dist_int(gen_int);
+    //         random_numbers[j] = num;
+    //     } 
+    //     double t1_original_cf = omp_get_wtime();
+    //     res1[i].resize(20000);
+    //     for (int j = 0; j < 20000; j++) {
+    //         float d1 = hnswlib::L2SqrVecCF(&query[i], &base[j], 0);
+    //         res1[i][j] = d1;
+    //     }
+    //     // continue;
+    //     double t2_original_cf = omp_get_wtime();
+    //     double t1_blas_cf = omp_get_wtime();
+    //     res2[i].resize(20000);
+    //     for (int j = 0; j < 20000; j++) {
+    //         float d = hnswlib::L2SqrVecBlasCF(&query[i], &base[j], C.data(), 0);
+    //         res2[i][j] = (d);
+    //     }
+    //     double t2_blas_cf = omp_get_wtime();
+    //     std::vector<float> tmpq(32*128);
+    //     std::vector<float> tmpd(180*128);
+    //     for (int j = 0; j < 32; j++) {
+    //         for (int k = 0; k < 128; k++) {
+    //             tmpq[k * 32 + j] = *((&query[i])->data + j * 128 + k);
+    //         }
+    //     }
+    //     double t1_eigen_cf = omp_get_wtime();
+    //     res3[i].resize(20000);
+    //     for (int j = 0; j < 20000; j++) {
+    //         // for (int t = 0; t < (&base[j])->vecnum; t++) {
+    //         //     for (int k = 0; k < 128; k++) {
+    //         //         tmpd[k * 32 + t] = *((&base[j])->data + t * 128 + k);
+    //         //     }
+    //         // }
+    //         // float d = hnswlib::L2SqrVecEigenCF(&query[i], &base[j], 0);
+    //         float d = hnswlib::max_inner_product_sum(tmpq.data(), (&base[j])->data, 32, (&base[j])->vecnum, 128) / 32;
+    //         res3[i][j] = (d);
+    //     }
+    //     double t2_eigen_cf = omp_get_wtime();
+    //     std::cout << i << ": original 2w:  " << t2_original_cf - t1_original_cf << " blas 2w: " << t2_blas_cf - t1_blas_cf << " eigen 2w: " << t2_eigen_cf - t1_eigen_cf << std::endl;
+    //     all_time_original_cf += t2_original_cf - t1_original_cf;
+    //     all_time_blas_cf += t2_blas_cf - t1_blas_cf;
+    //     all_time_eigen_cf += t2_eigen_cf - t1_eigen_cf;
+    // }
+    // std::cout << res1.size() << std::endl;
+    // std::cout << res2.size() << std::endl;
+    // std::cout << res3.size() << std::endl;
+    // // double t2 = omp_get_wtime();
+    // std::cout << all_time_original_cf / NUM_QUERY_SETS << std::endl;
+    // std::cout << all_time_blas_cf / NUM_QUERY_SETS << std::endl;
+    // std::cout << all_time_eigen_cf / NUM_QUERY_SETS << std::endl;
+    // return 0;
+
+    // std::cout << "begin test" << std::endl;
+
+    // double all_time_random = 0.0f;
+    // double all_time_sequence = 0.0f;
+    // // std::vector<float> res;
+    // std::vector<std::vector<float>> res1(100);
+    // std::vector<std::vector<float>> res2(100);
+    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+    //     for (int j = 0; j < 20000; j ++) {
+    //         int num = dist_int(gen_int);
+    //         random_numbers[j] = num;
+    //     } 
+    //     hnswlib::fast_dot_product_blas(262144, 128, 32, center_data.data(), (&query[i])->data, test_query_cluster_scores.data());  
+    //     vectorset query_cluster = vectorset(test_query_cluster_scores.data(), nullptr, 262144, 32);
+    //     double t1_sequence = omp_get_wtime();
+    //     res1[i].resize(20000);
+    //     for (int j = 0; j < 20000; j++) {
+    //         // float d0 = hnswlib::L2SqrCluster4Search(&query_center[i], &base[j], 0);
+    //         float d1 = hnswlib::L2SqrCluster4Search_eigen(&query_cluster, &base[j], 0);
+    //         // float d2 = hnswlib::L2SqrCluster4Search_eigen(&query_center_col[i], &base[j], 0);
+    //         // std::cout << d0 << " " << d1 << " " << d2 << std::endl;
+    //         res1[i][j] = d1;
+    //     }
+    //     // continue;
+    //     double t2_sequence = omp_get_wtime();
+    //     double t1_random = omp_get_wtime();
+    //     res2[i].resize(20000);
+    //     for (int j = 0; j < 20000; j++) {
+    //         float d = hnswlib::L2SqrCluster4Search_eigen(&query_cluster, &base[j], 0);
+    //         res2[i][j] = (d);
+    //     }
+    //     double t2_random = omp_get_wtime();
+    //     std::cout << i << ": sequence 2w:  " << t2_sequence - t1_sequence << " random 2w: " << t2_random - t1_random<< std::endl;
+    //     all_time_random += t2_random - t1_random;
+    //     all_time_sequence += t2_sequence - t1_sequence;
+    // }
+    // std::cout << res1.size() << std::endl;
+    // std::cout << res2.size() << std::endl;
+    // // double t2 = omp_get_wtime();
+    // std::cout << all_time_sequence / NUM_QUERY_SETS << std::endl;
+    // std::cout << all_time_random / NUM_QUERY_SETS << std::endl;
+    // return 0;
 
     if (!load_bf_from_cache) {
         GroundTruth ground_truth;
@@ -1001,7 +1140,10 @@ int main() {
         readGroundTruth(ground_truth_file, bf_ground_truth_cf);
         std::cout<< "load BF Groundtruth Finish!" <<std::endl;
     }
-
+    // for (int i = 0; i < 100; i++) {
+    //     std::cout << i << " " << hnswlib::L2SqrVecCF(&query[i], &base[i], 0) << std::endl;
+    // }
+    // return 0;
     // for (int i = 0; i < 10000; i++) {
     //     float chamfer_dist = hnswlib::L2SqrVecSet(&base[i], &base[i + 1], 0);
     //     float emd_dist = hnswlib::L2SqrVecEMD(&base[i], &base[i + 1], 0);
@@ -1234,7 +1376,7 @@ int main() {
     // return 0;
 
 
-    for (int tmpef = 200; tmpef <= 3000; tmpef += 100) {
+    for (int tmpef = 1000; tmpef <= 8000; tmpef += 500) {
         double total_recall = 0.0;
         double total_cf_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
@@ -1246,7 +1388,7 @@ int main() {
         double total_enrty_recall_50 = 0.0;
         double total_enrty_recall_100 = 0.0;
 
-
+        l2_sqr_call_count.store(0);
         std::cout<<"Processing Queries HNSW"<<std::endl;
         // #pragma omp parallel for schedule(dynamic)
         for (int i = 0; i < NUM_QUERY_SETS; ++i) {
@@ -1340,7 +1482,7 @@ int main() {
         std::cout << "Average our method recall v.s. dataset label: " << total_dataset_hnsw_recall / NUM_QUERY_SETS << std::endl;
         std::cout << "Average query time: " << total_query_time/NUM_QUERY_SETS << " seconds" << std::endl;
         std::cout << "Average L2Sqr was called " << l2_sqr_call_count.load() / NUM_QUERY_SETS << " times." << std::endl;
-        std::cout << "Average L2Vec was called " << l2_vec_call_count.load() / NUM_QUERY_SETS << " times." << std::endl;
+        // std::cout << "Average L2Vec was called " << l2_vec_call_count.load() / NUM_QUERY_SETS << " times." << std::endl;
     }
     return 0;
 
