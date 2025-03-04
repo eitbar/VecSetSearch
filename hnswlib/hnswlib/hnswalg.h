@@ -234,7 +234,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     inline labeltype getExternalLabel(tableint internal_id) const {
         labeltype return_label;
         memcpy(&return_label, (data_level0_memory_ + internal_id * size_data_per_element_ + label_offset_), sizeof(labeltype));
-        return internal_id;
+        return return_label;
     }
 
 

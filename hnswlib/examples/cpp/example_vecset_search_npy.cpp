@@ -26,6 +26,7 @@ constexpr int LOTTE_TEST_NUMBER = 98;
 int NUM_QUERY_SETS = 100;
 constexpr int QUERY_VECTOR_COUNT = 32;
 constexpr int K = 100;
+constexpr int NUM_CLUSTER = 262144;
 
 class GroundTruth {
 public:
@@ -105,44 +106,44 @@ private:
 
 class Solution {
 public:
-    void build(int d, const std::vector<vectorset>& base) {
+    void build(int d, const std::vector<vectorset>& base, const std::vector<std::vector<hnswlib::labeltype>>& cluster_set) {
         double time = omp_get_wtime();
+        alg_hnsw_list.resize(NUM_CLUSTER);
         dimension = d;
         base_vectors = base;
         space_ptr = new hnswlib::L2VSSpace(dimension);
-        alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, base_vectors.size() + 1, 16, 80);
+        // alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, base_vectors.size() + 1, 16, 80);
         #pragma omp parallel for schedule(dynamic)
-        for(hnswlib::labeltype i = 0; i < base_vectors.size(); i++){
-            // std::cout << i << std::endl;
-            if (i % 1000 == 0) {
-                std::cout << i << std::endl;
+        for(int i = 0; i < cluster_set.size(); i++) {
+            alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 8, 40);
+            for (int j = 0; j < cluster_set[i].size(); j++) {
+                alg_hnsw_list[i]->addPoint(&base_vectors[cluster_set[i][j]], cluster_set[i][j]);
             }
-            alg_hnsw->addPoint(&base_vectors[i], i);
+            std::cout << "cluster build finish: " + std::to_string(i) << std::endl;
         }
-        alg_hnsw->setEf(200);
         std::cout << "Build time: " << omp_get_wtime() - time << "sec"<<std::endl;
         // Add any necessary pre-computation or indexing for the optimized search
     }
 
-    double search(const vectorset query, int k, int ef, std::vector<std::pair<int, float>>& res) const {
-        res.clear();
-        alg_hnsw->setEf(ef);
-        double start_time = omp_get_wtime();
-        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnFineEdge(&query, k);
-        // std::cout << alg_hnsw->metric_hops << ' ' << alg_hnsw->metric_distance_computations << std::endl;
-        // alg_hnsw->metric_hops = 0;
-        // alg_hnsw->metric_distance_computations = 0;
-        for(int i = 0; i < k; i++){
-            res.push_back(std::make_pair(result.top().second, result.top().first));
-            result.pop();
-        }
-        double end_time = omp_get_wtime();
-        return end_time - start_time;
-    }
+    // double search(const vectorset query, int k, int ef, std::vector<std::pair<int, float>>& res) const {
+    //     res.clear();
+    //     alg_hnsw->setEf(ef);
+    //     double start_time = omp_get_wtime();
+    //     std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnFineEdge(&query, k);
+    //     // std::cout << alg_hnsw->metric_hops << ' ' << alg_hnsw->metric_distance_computations << std::endl;
+    //     // alg_hnsw->metric_hops = 0;
+    //     // alg_hnsw->metric_distance_computations = 0;
+    //     for(int i = 0; i < k; i++){
+    //         res.push_back(std::make_pair(result.top().second, result.top().first));
+    //         result.pop();
+    //     }
+    //     double end_time = omp_get_wtime();
+    //     return end_time - start_time;
+    // }
 
     double search_with_cluster(const vectorset query, std::vector<float>& query_cluster_scores, std::vector<float>& center_data, int k, int ef, std::vector<std::pair<int, float>>& res) const {
         res.clear();
-        alg_hnsw->setEf(ef);
+        alg_hnsw_list[0]->setEf(ef);
         l2_vec_call_count.store(0);
         double start_time = omp_get_wtime();
         // query_cluster_scores.resize(NUM_QUERY_SETS * 262144 * 32);
@@ -158,7 +159,7 @@ public:
 
         double cluster_time = omp_get_wtime();
         // std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnFineEdge(&query, k);
-        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnCluster(&query_cluster, ef);
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw_list[0]->searchKnnCluster(&query_cluster, ef);
         // std::cout << alg_hnsw->metric_hops << ' ' << alg_hnsw->metric_distance_computations << std::endl;
         // alg_hnsw->metric_hops = 0;
         // alg_hnsw->metric_distance_computations = 0;
@@ -178,57 +179,57 @@ public:
         return end_time - start_time;
     }
 
-    double searchFromEntries(const vectorset query, int k, int ef, std::vector<hnswlib::labeltype>& entry_points, std::vector<std::pair<int, float>>& res) const {
-        res.clear();
-        alg_hnsw->setEf(ef);
-        double start_time = omp_get_wtime();
-        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnParaFromEntries(&query, k, entry_points);
-        for(int i = 0; i < k; i++){
-            res.push_back(std::make_pair(result.top().second, result.top().first));
-            result.pop();
-        }
-        double end_time = omp_get_wtime();
-        return end_time - start_time;
-    }
-
     void save(const std::string &location) {
         double time = omp_get_wtime();
-        alg_hnsw->saveIndex(location);
+        for (int i = 0; i < alg_hnsw_list.size(); i++) {
+            std::string locai = location + std::to_string(i) + ".bin";
+            alg_hnsw_list[i]->saveIndex(locai);
+        }
+        // alg_hnsw->saveIndex(location);
         std::cout << "save time: " << omp_get_wtime() - time << "sec"<<std::endl;
     }
 
-    void load(const std::string &location, int d, const std::vector<vectorset>& base) {
+    void load(const std::string &location, int d, const std::vector<vectorset>& base, const std::vector<std::vector<hnswlib::labeltype>>& cluster_set) {
         double time = omp_get_wtime();
         dimension = d;
         base_vectors = base;
         space_ptr = new hnswlib::L2VSSpace(d);
-        alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 16, 80);
-        alg_hnsw->loadIndex(location, space_ptr);
-        // for (hnswlib::labeltype i = 0; i < 100; i++){
-        //     alg_hnsw->testDataLabel(i * 10000);
-        // }
-        // #pragma omp parallel for schedule(dynamic)
-        for(hnswlib::labeltype i = 0; i < base.size(); i++){
-            alg_hnsw->loadDataAddress(&base[i], i);            
+        alg_hnsw_list.resize(NUM_CLUSTER);
+        for(int i = 0; i < cluster_set.size(); i++) {
+            alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 16, 80);
+            alg_hnsw_list[i]->loadIndex(location + std::to_string(i) + ".bin", space_ptr);
+            for (int j = 0; j < cluster_set[i].size(); j++) {
+                alg_hnsw_list[i]->loadDataAddress(&base_vectors[cluster_set[i][j]], cluster_set[i][j]);
+            }
         }
-        alg_hnsw->getListCountForOutId();
+        // alg_hnsw = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 16, 80);
+        // alg_hnsw->loadIndex(location, space_ptr);
+        // // for (hnswlib::labeltype i = 0; i < 100; i++){
+        // //     alg_hnsw->testDataLabel(i * 10000);
+        // // }
+        // // #pragma omp parallel for schedule(dynamic)
+        // for(hnswlib::labeltype i = 0; i < base.size(); i++){
+        //     alg_hnsw->loadDataAddress(&base[i], i);            
+        // }
+        // alg_hnsw->getListCountForOutId();
         std::cout << "load time: " << omp_get_wtime() - time << "sec"<<std::endl;
     }
 
-    void addEdge(hnswlib::labeltype p1, hnswlib::labeltype p2) {
-        alg_hnsw->mutuallyConnectTwoElement(p1, p2);
-        alg_hnsw->mutuallyConnectTwoElement(p2, p1);
-    }
+    // void addEdge(hnswlib::labeltype p1, hnswlib::labeltype p2) {
+    //     alg_hnsw->mutuallyConnectTwoElement(p1, p2);
+    //     alg_hnsw->mutuallyConnectTwoElement(p2, p1);
+    // }
 
-    bool canAddEdge(hnswlib::labeltype p1) {
-        return alg_hnsw->canAddEdge(p1);
-    }
+    // bool canAddEdge(hnswlib::labeltype p1) {
+    //     return alg_hnsw->canAddEdge(p1);
+    // }
 
 private:
     int dimension;
     std::vector<vectorset> base_vectors;
     hnswlib::L2VSSpace* space_ptr;
-    hnswlib::HierarchicalNSW<float>* alg_hnsw;
+    // hnswlib::HierarchicalNSW<float>* alg_hnsw;
+    std::vector<hnswlib::HierarchicalNSW<float>*> alg_hnsw_list;
 };
 
 
@@ -350,6 +351,7 @@ void demo_test_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
 void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& base,
                        std::vector<float>& query_data, std::vector<vectorset>& query,
                        std::vector<int>& base_data_codes, std::vector<float>& center_data,
+                       std::vector<std::vector<hnswlib::labeltype>>& cluster_set, 
                        int file_numbers, std::vector<std::vector<int>>& qrels) {
     long long offset = 0;  
     long long all_elements = 0; 
@@ -357,7 +359,8 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
     long long all_codes = 0;  
     std::string cembfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/new_center_code/centroids.npy";
     std::string qembfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qembs_32_6980.npy";
-    std::string qrelfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qrels_6980.tsv";    
+    std::string qrelfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qrels_6980.tsv";
+    std::string cdocsfile_name =  "/home/zhoujin/project/forremove/VecSetSearch/cluster_info.txt";  
 
     for (int i = 0; i < file_numbers; i++) {
         std::string embfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/encoding" + std::to_string(i) + "_float16.npy";
@@ -449,6 +452,25 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
                 qrels[num1].push_back(num2);
             }
         }
+    }
+    file.close();
+
+    std::ifstream codcsfile(cdocsfile_name);
+    std::string cdocs_line;
+    int lineid = 0;
+    while (std::getline(codcsfile, cdocs_line)) { // 逐行读取
+        std::istringstream iss(cdocs_line);  // 创建字符串流
+        hnswlib::labeltype num1;
+        char delimiter;                // 用于捕获 \t 分隔符
+
+        // 读取两个整数，用 \t 作为分隔符
+        while (iss >> num1) {
+            cluster_set[lineid].push_back(num1);
+        }
+        if (lineid % 100 == 0) {
+            std::cout << lineid << " " << cluster_set[lineid].size() << std::endl;
+        }
+        lineid++;
     }
     file.close();
 
@@ -892,6 +914,7 @@ int main() {
     std::vector<float> query_cluster_scores;
     std::vector<float> query_cluster_scores_col;
     std::vector<float> test_query_cluster_scores;
+    std::vector<std::vector<hnswlib::labeltype>> cluster_set;
     std::vector<std::vector<int>> qrels;
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth(
         6980, std::vector<std::pair<int, float>>(4000, {0, 0.0f})
@@ -902,7 +925,7 @@ int main() {
     int dataset = 0;
     bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = false;
+    bool rebuild = true;
     bool reconnect = false;
     int dist_metric = 1;
     int multi_entries_num = 40;
@@ -957,8 +980,9 @@ int main() {
             query_data.resize((long long) NUM_QUERY_SETS * 128 * 32 + 1);
             base_data_codes.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 80);
             center_data.resize((long long) 262144 * 128);
+            cluster_set.resize(NUM_CLUSTER);
             // std::cout<< (long long) 25000 * MSMACRO_TEST_NUMBER * 80 << std::endl;
-            load_from_msmarco(base_data, base, query_data, query, base_data_codes, center_data, MSMACRO_TEST_NUMBER, qrels);
+            load_from_msmarco(base_data, base, query_data, query, base_data_codes, center_data, cluster_set, MSMACRO_TEST_NUMBER, qrels);
         }
     }
     else if (dataset == 1) {
@@ -1161,13 +1185,13 @@ int main() {
     // }
     // std::cout << hnswlib::L2SqrCluster4Search(&query_center[9], &base[3338], 0) << std::endl;
     // return 0;
-
+    index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/clusterIndex/";
     Solution solution;
     if (rebuild) {
-        solution.build(VECTOR_DIM, base);
+        solution.build(VECTOR_DIM, base, cluster_set);
         solution.save(index_file);
     } else {
-        solution.load(index_file, VECTOR_DIM, base);
+        solution.load(index_file, VECTOR_DIM, base, cluster_set);
     }
 
     // for (int l = 5; l <= 5; l++) {
@@ -1270,105 +1294,105 @@ int main() {
     //     }
     // }
 
-    if (reconnect) {
+    // if (reconnect) {
         
-        int add_success_count = 0;
-        std::vector<float> train_query_data;
-        std::vector<vectorset> train_query;
-        std::vector<std::vector<int>> train_qrels;
-        // train_query_data.resize((long long) 808731 * 128 * 32 + 1);
-        std::vector<std::vector<std::pair<int, float>>> train_ground_truth_cf(
-            6980, std::vector<std::pair<int, float>>(10, {0, 0.0f})
-        );
-        load_train_query(train_query_data, train_query, train_qrels);
-        std::vector<std::pair<int, float>> solution_indices;
-        for (int i = 0; i < 808731; i++) {
-            if (i % 1000 == 0) {
-                std::cout << i << std::endl;
-            }
-            if (train_qrels[i].size() == 0) {
-                continue;
-            }
-            solution_indices.clear();
-            double query_time = solution.search(train_query[i], 100, 1000, solution_indices);
-            double recall_before_add = calculate_recall_for_msmacro(solution_indices, train_qrels[i]);
-            for (int j = 0; j < train_qrels[i].size(); j++) {
-                if (solution.canAddEdge(train_qrels[i][j])) {
-                    for (int k = 0; k < solution_indices.size(); k ++) {
-                        if (solution.canAddEdge(solution_indices[k].first)) {
-                            solution.addEdge(solution_indices[k].first, train_qrels[i][j]);
-                            add_success_count += 1;
-                            break;
-                        }
-                    }
-                }
-            }
-            solution_indices.clear();
-            query_time = solution.search(train_query[i], 100, 1000, solution_indices);
-            double recall_after_add = calculate_recall_for_msmacro(solution_indices, train_qrels[i]);
-            std::cout << "Recall for train query set " << i << ": " << recall_before_add << " | " << recall_after_add << std::endl;
+    //     int add_success_count = 0;
+    //     std::vector<float> train_query_data;
+    //     std::vector<vectorset> train_query;
+    //     std::vector<std::vector<int>> train_qrels;
+    //     // train_query_data.resize((long long) 808731 * 128 * 32 + 1);
+    //     std::vector<std::vector<std::pair<int, float>>> train_ground_truth_cf(
+    //         6980, std::vector<std::pair<int, float>>(10, {0, 0.0f})
+    //     );
+    //     load_train_query(train_query_data, train_query, train_qrels);
+    //     std::vector<std::pair<int, float>> solution_indices;
+    //     for (int i = 0; i < 808731; i++) {
+    //         if (i % 1000 == 0) {
+    //             std::cout << i << std::endl;
+    //         }
+    //         if (train_qrels[i].size() == 0) {
+    //             continue;
+    //         }
+    //         solution_indices.clear();
+    //         double query_time = solution.search(train_query[i], 100, 1000, solution_indices);
+    //         double recall_before_add = calculate_recall_for_msmacro(solution_indices, train_qrels[i]);
+    //         for (int j = 0; j < train_qrels[i].size(); j++) {
+    //             if (solution.canAddEdge(train_qrels[i][j])) {
+    //                 for (int k = 0; k < solution_indices.size(); k ++) {
+    //                     if (solution.canAddEdge(solution_indices[k].first)) {
+    //                         solution.addEdge(solution_indices[k].first, train_qrels[i][j]);
+    //                         add_success_count += 1;
+    //                         break;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //         solution_indices.clear();
+    //         query_time = solution.search(train_query[i], 100, 1000, solution_indices);
+    //         double recall_after_add = calculate_recall_for_msmacro(solution_indices, train_qrels[i]);
+    //         std::cout << "Recall for train query set " << i << ": " << recall_before_add << " | " << recall_after_add << std::endl;
         
-        }
-        std::cout << "success add count: " << add_success_count << std::endl;
-    }
+    //     }
+    //     std::cout << "success add count: " << add_success_count << std::endl;
+    // }
 
-    if (reconnect) {
-        std::vector<std::pair<int, float>> solution_indices;
-        for (int t = 1; t < 50; t++) {
-            std::cout << t << " ============" << std::endl;
-            double all_bf_before = 0.0;
-            double all_label_before = 0.0;
-            double all_bf_after = 0.0;
-            double all_label_after = 0.0;
-            Solution newsolution;
-            newsolution.load(index_file, VECTOR_DIM, base);
-            std::vector<float> random_noise = generate_random_vector(32, (float)t / 100, (float)(t + 1) / 100);
-            std::vector<int> random_sign = generate_random_sign_sequence(32);
-            for (int i = 0; i < 100; i++) {
-                solution_indices.clear();
-                for (int j = 0; j < 32; j++) {
-                    for (int k = 0; k < 128; k++) {
-                        query_data[i * 32 * 128 + j * 128 + k] = query_data[i * 32 * 128 + j * 128 + k] + (float)random_noise[j] * (float) random_sign[j];
-                    }
-                }
-                double query_time = newsolution.search(query[i], 100, 1000, solution_indices);
-                double recall_before_add = calculate_recall_for_msmacro(solution_indices, qrels[i]);
-                double recall_bf_before = calculate_recall(solution_indices, bf_ground_truth[i]);
-                all_bf_before += recall_bf_before;
-                all_label_before += recall_before_add;
+    // if (reconnect) {
+    //     std::vector<std::pair<int, float>> solution_indices;
+    //     for (int t = 1; t < 50; t++) {
+    //         std::cout << t << " ============" << std::endl;
+    //         double all_bf_before = 0.0;
+    //         double all_label_before = 0.0;
+    //         double all_bf_after = 0.0;
+    //         double all_label_after = 0.0;
+    //         Solution newsolution;
+    //         newsolution.load(index_file, VECTOR_DIM, base);
+    //         std::vector<float> random_noise = generate_random_vector(32, (float)t / 100, (float)(t + 1) / 100);
+    //         std::vector<int> random_sign = generate_random_sign_sequence(32);
+    //         for (int i = 0; i < 100; i++) {
+    //             solution_indices.clear();
+    //             for (int j = 0; j < 32; j++) {
+    //                 for (int k = 0; k < 128; k++) {
+    //                     query_data[i * 32 * 128 + j * 128 + k] = query_data[i * 32 * 128 + j * 128 + k] + (float)random_noise[j] * (float) random_sign[j];
+    //                 }
+    //             }
+    //             double query_time = newsolution.search(query[i], 100, 1000, solution_indices);
+    //             double recall_before_add = calculate_recall_for_msmacro(solution_indices, qrels[i]);
+    //             double recall_bf_before = calculate_recall(solution_indices, bf_ground_truth[i]);
+    //             all_bf_before += recall_bf_before;
+    //             all_label_before += recall_before_add;
 
-                // for (int j = 0; j < 9; j++) {
-                //     newsolution.addEdge(bf_ground_truth_cf[i][j].first, bf_ground_truth_cf[i][j + 1].first);
-                // }
-                for (int j = 0; j < 9; j++) {
-                    newsolution.addEdge(solution_indices[j].first, solution_indices[j + 1].first);
-                }
-                // if (bf_ground_truth_cf[i][0].first != qrels[i][0]) {
-                //     newsolution.addEdge(qrels[i][0], bf_ground_truth_cf[i][0].first);
-                // }
-                if (solution_indices[0].first != qrels[i][0]) {
-                    newsolution.addEdge(qrels[i][0], solution_indices[0].first);
-                }
-                solution_indices.clear();
-                for (int j = 0; j < 32; j++) {
-                    for (int k = 0; k < 128; k++) {
-                        query_data[i * 32 * 128 + j * 128 + k] = query_data[i * 32 * 128 + j * 128 + k] - (float)random_noise[j] * (float) random_sign[j];
-                    }
-                }
-                query_time = newsolution.search(query[i], 100, 1000, solution_indices);
-                double recall_after_add = calculate_recall_for_msmacro(solution_indices, qrels[i]);
-                double recall_bf_after = calculate_recall(solution_indices, bf_ground_truth[i]);
-                all_bf_after += recall_bf_after;
-                all_label_after += recall_after_add;
-                std::cout << "Recall for train query set " << i << ": " << recall_before_add <<  " " << recall_bf_before << " | " << recall_after_add << " " << recall_bf_after << std::endl;
+    //             // for (int j = 0; j < 9; j++) {
+    //             //     newsolution.addEdge(bf_ground_truth_cf[i][j].first, bf_ground_truth_cf[i][j + 1].first);
+    //             // }
+    //             for (int j = 0; j < 9; j++) {
+    //                 newsolution.addEdge(solution_indices[j].first, solution_indices[j + 1].first);
+    //             }
+    //             // if (bf_ground_truth_cf[i][0].first != qrels[i][0]) {
+    //             //     newsolution.addEdge(qrels[i][0], bf_ground_truth_cf[i][0].first);
+    //             // }
+    //             if (solution_indices[0].first != qrels[i][0]) {
+    //                 newsolution.addEdge(qrels[i][0], solution_indices[0].first);
+    //             }
+    //             solution_indices.clear();
+    //             for (int j = 0; j < 32; j++) {
+    //                 for (int k = 0; k < 128; k++) {
+    //                     query_data[i * 32 * 128 + j * 128 + k] = query_data[i * 32 * 128 + j * 128 + k] - (float)random_noise[j] * (float) random_sign[j];
+    //                 }
+    //             }
+    //             query_time = newsolution.search(query[i], 100, 1000, solution_indices);
+    //             double recall_after_add = calculate_recall_for_msmacro(solution_indices, qrels[i]);
+    //             double recall_bf_after = calculate_recall(solution_indices, bf_ground_truth[i]);
+    //             all_bf_after += recall_bf_after;
+    //             all_label_after += recall_after_add;
+    //             std::cout << "Recall for train query set " << i << ": " << recall_before_add <<  " " << recall_bf_before << " | " << recall_after_add << " " << recall_bf_after << std::endl;
             
-            }
-            std::cout << "error level: " << t << std::endl; 
-            std::cout << "recall vs BruteFroce: before " << all_bf_before << " after " << all_bf_after << std::endl;
-            std::cout << "recall vs Label: before " <<  all_label_before << " after " << all_label_after << std::endl;
-        }
-        return 0;
-    }
+    //         }
+    //         std::cout << "error level: " << t << std::endl; 
+    //         std::cout << "recall vs BruteFroce: before " << all_bf_before << " after " << all_bf_after << std::endl;
+    //         std::cout << "recall vs Label: before " <<  all_label_before << " after " << all_label_after << std::endl;
+    //     }
+    //     return 0;
+    // }
     // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
     //     std::cout << hnswlib::L2SqrVecEMD(&query[i], &base[i], 0) << std::endl;
     //     std::cout << hnswlib::L2SqrVecEMD(&base[i], &query[i], 0) << std::endl;
