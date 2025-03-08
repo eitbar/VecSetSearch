@@ -9,6 +9,7 @@
 #include <cassert>
 #include <cblas.h>
 #include "../otlib/EMD.h"
+#include <chrono>
 
 inline std::atomic<int> l2_sqr_call_count(0);
 inline std::atomic<int> l2_vec_call_count(0);
@@ -977,6 +978,55 @@ static float L2SqrVecEMD(const vectorset* q, const vectorset* p, int level) {
     return (float)emd;
 }
 
+
+float compute_emd(const std::vector<float>& a, const std::vector<float>& b, 
+                  const std::vector<float>& C, int n, int m) {
+    std::vector<float> F(n * m, 0);  // 传输矩阵
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                n, m, m, 1.0f, a.data(), m, b.data(), m, 0.0f, F.data(), m);
+
+    float emd = 0.0f;
+    for (int i = 0; i < n * m; ++i) {
+        emd += F[i] * C[i];  // 计算 EMD 值
+    }
+    return emd;
+}
+
+static float L2SqrVecEMDBlas(const vectorset* q, const vectorset* p, int level) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    level = 0;
+    // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
+    float (*L2Sqrfunc_)(const void*, const void*, const void*);
+    #if defined(USE_AVX512)
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
+    #elif defined(USE_AVX)
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
+    #else 
+    L2Sqrfunc_ = InnerProductDistance;
+    #endif
+    size_t n = q->vecnum;
+    size_t m = p->vecnum ;
+    std::vector<float> dist_flat(n * m);
+    // std::vector<std::vector<double>> dist_matrix(n, std::vector<double>(m));
+    for (size_t i = 0; i < n; ++i) {
+        const float* vec_q = q->data + i * q->dim;
+        for (size_t j = 0; j < m; ++j) {
+            const float* vec_p = p->data + j * p->dim;
+            float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+            dist_flat[i * m + j] = dist;
+        }
+    }
+
+    std::vector<float> a_hist(n, 1.0 / n);
+    std::vector<float> b_hist(m, 1.0 / m);
+    // 计算EMD（匹配后的最小搬运成本）
+    float emd = compute_emd(a_hist, b_hist, dist_flat, n, m);
+    // double emd = EMD_wrap_self(n, m, a_hist.data(), b_hist.data(), dist_flat.data(), 1000);
+    // std::cout<< emd << std::endl;
+    return emd;
+}
+
 static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
     float sum1 = 0.0f;
     float sum2 = 0.0f;
@@ -1028,7 +1078,11 @@ float compute_with_eigen(const float* data, const int* codes, int n, int d, int 
     for (size_t j = 0; j < m; ++j) {
         maxDist = maxDist.cwiseMax(data_mat.col(codes[j])); // Eigen 自动向量化
     }
-
+    // std::cout << "eigen" << std::endl;
+    // for (int i = 0; i < n; i ++) {
+        // std::cout << i << " " << maxDist[i] << " ";
+    // }
+    // std::cout << std::endl;
     // 计算 sum1
     return (1.0f - maxDist.array()).sum();
 }
@@ -1063,8 +1117,8 @@ float compute_with_eigen(const float* data, const int* codes, int n, int d, int 
 
 
 static float L2SqrCluster4Search(const vectorset* q, const vectorset* p, int level) {
-    l2_sqr_call_count.fetch_add(1, std::memory_order_relaxed);
-    l2_vec_call_count.fetch_add(1, std::memory_order_relaxed);
+    // l2_sqr_call_count.fetch_add(1, std::memory_order_relaxed);
+    // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed);
     float sum1 = 0.0f;
     float sum2 = 0.0f;
     level = 0;
@@ -1074,6 +1128,42 @@ static float L2SqrCluster4Search(const vectorset* q, const vectorset* p, int lev
     return sum1 / q->vecnum;
 }
 
+static float L2SqrClusterAVX4Search(const vectorset* q, const vectorset* p, int level) {
+    // l2_sqr_call_count.fetch_add(1, std::memory_order_relaxed);
+    // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed);
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    level = 0;
+    size_t q_vecnum = q->vecnum;
+    size_t p_vecnum = p->vecnum;
+    // sum1 = compute_with_eigen(q->data, p->codes, q->vecnum, 262144, p->vecnum);
+    // std::cout << "AVX" << std::endl;
+    #pragma omp simd reduction(+:sum1)
+    for (int i = 0; i < q->vecnum; ++i) {
+        __m512 max_val = _mm512_set1_ps(std::numeric_limits<float>::lowest());
+
+        for (size_t j = 0; j < p_vecnum; j += 16) {  // 每次处理 16 个列索引
+            int valid_count = std::min((size_t)16, p_vecnum - j);
+            // 读取索引
+            alignas(64) int index_buffer[16] = {0};
+            for (int k = 0; k < valid_count; ++k) {
+                index_buffer[k] = p->codes[j + k];
+            }
+            __m512i indices = _mm512_load_si512(index_buffer);
+            // 按索引读取数据
+            __m512 values = _mm512_i32gather_ps(indices, &(q->data[i * 262144]), sizeof(float));
+            max_val = _mm512_max_ps(max_val, values);
+        }
+
+        // 计算最终最大值
+        alignas(64) float max_values[16];
+        _mm512_store_ps(max_values, max_val);
+        sum1 += *std::max_element(max_values, max_values + 16);
+        // std::cout << i << " " << *std::max_element(max_values, max_values + 16) << " ";
+    }
+    // std::cout << std::endl;
+    return 1.0f - sum1 / q->vecnum;
+}
 
 static float L2SqrVecSet4Search(const vectorset* q, const vectorset* p, int level) {
     float sum1 = 0.0f;
