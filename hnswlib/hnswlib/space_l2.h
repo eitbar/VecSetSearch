@@ -1223,7 +1223,7 @@ static float L2SqrVecSetMap(const vectorset* a, const vectorset* b, const vector
     #else 
     L2Sqrfunc_ = InnerProductDistance;
     #endif
-    size_t fineEdgeMaxlen = 130;
+    size_t fineEdgeMaxlen = 0;
     size_t a_vecnum = std::min(a->vecnum, (size_t)fineEdgeMaxlen);
     size_t b_vecnum = std::min(b->vecnum, (size_t)fineEdgeMaxlen);
     size_t c_vecnum = std::min(c->vecnum, (size_t)fineEdgeMaxlen);
@@ -1256,7 +1256,7 @@ static float L2SqrVecSetInitEMD(const vectorset* a, const vectorset* b, uint8_t*
     // level = 0;
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
 
-    uint8_t fineEdgeMaxlen = 130;
+    uint8_t fineEdgeMaxlen = 0;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
     L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
@@ -1305,7 +1305,7 @@ static float L2SqrVecSetInit(const vectorset* a, const vectorset* b, uint8_t* ne
     // level = 0;
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
 
-    uint8_t fineEdgeMaxlen = 130;
+    uint8_t fineEdgeMaxlen = 0;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
     L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
@@ -1360,7 +1360,7 @@ static std::pair<float, float> L2SqrVecSetInitReturn2(const vectorset* a, const 
     // level = 0;
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
 
-    uint8_t fineEdgeMaxlen = 130;
+    uint8_t fineEdgeMaxlen = 0;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
     L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
@@ -1418,7 +1418,7 @@ static float L2SqrVecSetInitPreCalc(const vectorset* a, const vectorset* b, uint
     // level = 0;
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
 
-    uint8_t fineEdgeMaxlen = 130;
+    uint8_t fineEdgeMaxlen = 0;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
     L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
@@ -1475,7 +1475,7 @@ static std::pair<float, float> L2SqrVecSetInitPreCalcReturn2(const vectorset* a,
     // level = 0;
     // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
 
-    uint8_t fineEdgeMaxlen = 130;
+    uint8_t fineEdgeMaxlen = 0;
     float (*L2Sqrfunc_)(const void*, const void*, const void*);
     #if defined(USE_AVX512)
     L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
@@ -1540,7 +1540,7 @@ static float L2SqrVecSetMapCalc(const vectorset* a, const vectorset* b, const ve
     #else 
     L2Sqrfunc_ = InnerProductDistance;
     #endif
-    uint8_t fineEdgeMaxlen = 130;
+    uint8_t fineEdgeMaxlen = 0;
     uint8_t a_vecnum = (uint8_t) std::min(a->vecnum, (size_t)fineEdgeMaxlen);
     uint8_t b_vecnum = (uint8_t) std::min(b->vecnum, (size_t)fineEdgeMaxlen);
     uint8_t c_vecnum = (uint8_t) std::min(c->vecnum, (size_t)fineEdgeMaxlen);
