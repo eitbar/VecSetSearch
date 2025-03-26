@@ -959,23 +959,50 @@ static float L2SqrVecEMD(const vectorset* q, const vectorset* p, int level) {
     #endif
     size_t n = q->vecnum;
     size_t m = p->vecnum ;
-    std::vector<double> dist_flat(n * m);
+    std::vector<float> dist_flat(n * m);
     // std::vector<std::vector<double>> dist_matrix(n, std::vector<double>(m));
     for (size_t i = 0; i < n; ++i) {
         const float* vec_q = q->data + i * q->dim;
         for (size_t j = 0; j < m; ++j) {
             const float* vec_p = p->data + j * p->dim;
             float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
-            dist_flat[i * m + j] = (double)dist;
+            dist_flat[i * m + j] = (float)dist;
         }
     }
 
-    std::vector<double> a_hist(n, 1.0 / n);
-    std::vector<double> b_hist(m, 1.0 / m);
+    std::vector<float> a_hist(n, 1.0 / n);
+    std::vector<float> b_hist(m, 1.0 / m);
     // 计算EMD（匹配后的最小搬运成本）
-    double emd = EMD_wrap_self(n, m, a_hist.data(), b_hist.data(), dist_flat.data(), 1000);
+    float emd = EMD_wrap_self(n, m, a_hist.data(), b_hist.data(), dist_flat.data(), 1000);
     // std::cout<< emd << std::endl;
     return (float)emd;
+}
+
+
+static float L2SqrVecClusterEMD(const vectorset* q, const vectorset* p, const float* cluster_dis) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    // level = 0;
+    // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
+
+    size_t n = q->vecnum;
+    size_t m = p->vecnum ;
+    std::vector<float> dist_flat(n * m);
+
+    // #pragma omp parallel for schedule(dynamic)
+    for (size_t i = 0; i < n; ++i) {
+        long long icode = (long long)q->codes[i] * 262144;
+        for (size_t j = 0; j < m; ++j) {
+            dist_flat[i * m + j] = (float)1.0f - cluster_dis[icode + p->codes[j]];
+        }
+    }
+
+    std::vector<float> a_hist(n, 1.0 / n);
+    std::vector<float> b_hist(m, 1.0 / m);
+    // 计算EMD（匹配后的最小搬运成本）
+    float emd = EMD_wrap_self(n, m, a_hist.data(), b_hist.data(), dist_flat.data(), 1000);
+    // std::cout<< emd << std::endl;
+    return emd;
 }
 
 
@@ -1026,6 +1053,8 @@ static float L2SqrVecEMDBlas(const vectorset* q, const vectorset* p, int level) 
     // std::cout<< emd << std::endl;
     return emd;
 }
+
+
 
 static float L2SqrVecSet(const vectorset* q, const vectorset* p, int level) {
     float sum1 = 0.0f;
@@ -1268,7 +1297,7 @@ static float L2SqrVecSetInitEMD(const vectorset* a, const vectorset* b, uint8_t*
     size_t a_vecnum = (size_t) std::min(a->vecnum, (size_t)fineEdgeMaxlen);
     size_t b_vecnum = (size_t) std::min(b->vecnum, (size_t)fineEdgeMaxlen);
 
-    std::vector<double> dist_flat(a_vecnum * b_vecnum);
+    std::vector<float> dist_flat(a_vecnum * b_vecnum);
     // std::vector<std::vector<double>> dist_matrix(n, std::vector<double>(m));
     #pragma omp simd reduction(+:sum1)
     for (size_t i = 0; i < a_vecnum; ++i) {
@@ -1276,14 +1305,14 @@ static float L2SqrVecSetInitEMD(const vectorset* a, const vectorset* b, uint8_t*
         for (size_t j = 0; j < b_vecnum; ++j) {
             const float* vec_p = b->data + j * b->dim;
             float dist = L2Sqrfunc_(vec_q, vec_p, &a->dim);
-            dist_flat[i * b_vecnum + j] = (double)dist;
+            dist_flat[i * b_vecnum + j] = (float)dist;
         }
     }
 
-    std::vector<double> a_hist(a_vecnum, 1.0 / a_vecnum);
-    std::vector<double> b_hist(b_vecnum, 1.0 / b_vecnum);
+    std::vector<float> a_hist(a_vecnum, 1.0 / a_vecnum);
+    std::vector<float> b_hist(b_vecnum, 1.0 / b_vecnum);
     // 计算EMD（匹配后的最小搬运成本）
-    double emd = EMD_wrap_self(a_vecnum, b_vecnum, a_hist.data(), b_hist.data(), dist_flat.data(), 1000);
+    float emd = EMD_wrap_self(a_vecnum, b_vecnum, a_hist.data(), b_hist.data(), dist_flat.data(), 1000);
 
     #pragma omp simd reduction(+:sum1)        
     for (size_t i = 0; i < a_vecnum; ++i) {

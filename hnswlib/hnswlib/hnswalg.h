@@ -52,6 +52,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
     std::mutex global;
     std::vector<std::mutex> link_list_locks_;
+    const float* cluster_dis;
 
     tableint enterpoint_node_{0};
 
@@ -68,6 +69,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     float (*fstdistfunc4search_)(const vectorset*, const vectorset*, int level) ;
     float (*fstdistfuncCF)(const vectorset*, const vectorset*, int level) ;
     float (*fstdistfuncEMD)(const vectorset*, const vectorset*, int level) ;
+    float (*fstdistfuncClusterEMD)(const vectorset*, const vectorset*, const float*) ;
     float (*fstdistfuncMap_)(const vectorset* , const vectorset* , const vectorset* , const uint8_t* , const uint8_t* , uint8_t* , int level);
     float (*fstdistfuncMapCalc_)(const vectorset* , const vectorset* , const vectorset* , const uint8_t* , const uint8_t* , std::vector<std::vector<float>>&, int level);
     float (*fstdistfuncInit_)(const vectorset* , const vectorset* , uint8_t* , int level);
@@ -135,6 +137,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         fstdistfuncEMD = L2SqrVecEMD;
         fstdistfuncInitEMD = L2SqrVecSetInitEMD;
         fstdistfuncCluster = L2SqrCluster4Search;
+        fstdistfuncClusterEMD = L2SqrVecClusterEMD;
         dist_func_param_ = s->get_dist_func_param();
         if ( M <= 10000 ) {
             M_ = M;
@@ -147,6 +150,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         maxM0_ = M_ * 2;
         ef_construction_ = std::max(ef_construction, M_);
         ef_ = 80;
+        
+
 
         level_generator_.seed(random_seed);
         update_probability_generator_.seed(random_seed + 1);
@@ -274,7 +279,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     }
 
     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-    searchKnnParaForConstruction(tableint ep_id, const void *data_point) {
+    searchKnnParaForConstruction(tableint ep_id, const void *data_point) const {
         tableint currObj = enterpoint_node_;
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
         top_candidates = searchBaseLayerFullPreST<true>(currObj, data_point, ef_construction_);
@@ -285,7 +290,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     }
 
     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-    searchBaseLayer(tableint ep_id, const void *data_point, int layer) {
+    searchBaseLayer(tableint ep_id, const void *data_point, int layer) const {
         return searchKnnParaForConstruction(ep_id, data_point);
     }
 
@@ -889,7 +894,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         if (bare_bone_search || 
             (!isMarkedDeleted(ep_id) && ((!isIdAllowed) || (*isIdAllowed)(getExternalLabel(ep_id))))) {
             char* ep_data = getDataByInternalId(ep_id);
-            dist_t dist = fstdistfuncEMD((vectorset*)data_point, (vectorset*)ep_data, 0);
+            // dist_t dist = fstdistfuncEMD((vectorset*)data_point, (vectorset*)ep_data, 0);
+            dist_t dist = fstdistfuncClusterEMD((vectorset*)data_point, (vectorset*)ep_data, cluster_dis);
             // dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)ep_data);
             lowerBound = dist;
             top_candidates.emplace(dist, ep_id);
@@ -951,8 +957,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     visited_array[candidate_id] = visited_array_tag;
 
                     char *currObj1 = (getDataByInternalId(candidate_id));
-                    // dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)currObj1);
-                    dist_t dist = fstdistfuncEMD((vectorset*)data_point, (vectorset*)currObj1, 0);
+                    // dist_t dist = fstdistfuncEMD((vectorset*)data_point, (vectorset*)ep_data, 0);
+                    dist_t dist = fstdistfuncClusterEMD((vectorset*)data_point, (vectorset*)currObj1, cluster_dis);
 
                     bool flag_consider_candidate;
                     if (!bare_bone_search && stop_condition) {
@@ -1507,8 +1513,8 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
 
             for (std::pair<dist_t, tableint> second_pair : return_list) {
                 dist_t curdist =
-                        fstdistfuncEMD((vectorset*)getDataByInternalId(second_pair.second),
-                                        (vectorset*)getDataByInternalId(curent_pair.second), level);
+                        fstdistfuncClusterEMD((vectorset*)getDataByInternalId(second_pair.second),
+                                        (vectorset*)getDataByInternalId(curent_pair.second), cluster_dis);
                 if (curdist < dist_to_query) {
                     good = false;
                     break;
@@ -1654,14 +1660,14 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
                     // finding the "weakest" element to replace it with the new one
                     // dist_t tmp = fstdistfuncInit_((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), data_list + fineEdgeSize * idx, 0);
                 
-                    dist_t d_max = fstdistfuncEMD((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), level);
+                    dist_t d_max = fstdistfuncClusterEMD((vectorset*)getDataByInternalId(cur_c), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), cluster_dis);
                     // Heuristic:
                     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidates;
                     candidates.emplace(d_max, cur_c);
 
                     for (size_t j = 0; j < sz_link_list_other; j++) {
                         candidates.emplace(
-                                fstdistfuncEMD((vectorset*)getDataByInternalId(data[j]), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), level), data[j]);
+                            fstdistfuncClusterEMD((vectorset*)getDataByInternalId(data[j]), (vectorset*)getDataByInternalId(selectedNeighbors[idx]), cluster_dis), data[j]);
                     }
 
                     getNeighborsByHeuristic2(candidates, Mcurmax, level);
@@ -2796,7 +2802,10 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
         return cur_c;
     }
 
-
+    void setClusterDis(const float* cluster_distance) {
+        cluster_dis = cluster_distance;
+    }
+    
     tableint addPointCluster(const void *data_point, const void *data_center_point, labeltype label, int level) {
         tableint cur_c = 0;
         {

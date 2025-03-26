@@ -116,7 +116,7 @@ int EMD_wrap(int n1, int n2, double *X, double *Y, double *D, double *G,
 
 
 
-float EMD_wrap_self(int n1, int n2, double *X, double *Y, double *D, uint64_t maxIter)  {
+float EMD_wrap_self_float(int n1, int n2, double *X, double *Y, double *D, uint64_t maxIter)  {
     // beware M and C are stored in row major C style!!!
 
     using namespace lemon;
@@ -201,4 +201,93 @@ float EMD_wrap_self(int n1, int n2, double *X, double *Y, double *D, uint64_t ma
         cost += flow * (*(D+indI[i]*n2+indJ[j-n]));
     }
     return (float) cost;
+}
+
+
+
+float EMD_wrap_self(int n1, int n2, float *X, float *Y, float *D, uint32_t maxIter)  {
+    // beware M and C are stored in row major C style!!!
+
+    using namespace lemon;
+    uint32_t n, m, cur;
+
+    typedef FullBipartiteDigraph Digraph;
+    DIGRAPH_TYPEDEFS(Digraph);
+
+    // Get the number of non zero coordinates for r and c
+    n=0;
+    for (int i=0; i<n1; i++) {
+        float val=*(X+i);
+        if (val>0) {
+            n++;
+        }else if(val<0){
+			return INFEASIBLE;
+		}
+    }
+    m=0;
+    for (int i=0; i<n2; i++) {
+        float val=*(Y+i);
+        if (val>0) {
+            m++;
+        }else if(val<0){
+			return INFEASIBLE;
+		}
+    }
+
+    // Define the graph
+
+    std::vector<uint32_t> indI(n), indJ(m);
+    std::vector<float> weights1(n), weights2(m);
+    Digraph di(n, m);
+    NetworkSimplexSimple<Digraph,float,float, node_id_type> net(di, true, (int) (n + m), n * m, maxIter);
+
+    // Set supply and demand, don't account for 0 values (faster)
+
+    cur=0;
+    for (uint32_t i=0; i<n1; i++) {
+        float val=*(X+i);
+        if (val>0) {
+            weights1[ cur ] = val;
+            indI[cur++]=i;
+        }
+    }
+
+    // Demand is actually negative supply...
+
+    cur=0;
+    for (uint32_t i=0; i<n2; i++) {
+        float val=*(Y+i);
+        if (val>0) {
+            weights2[ cur ] = -val;
+            indJ[cur++]=i;
+        }
+    }
+
+
+    net.supplyMap(&weights1[0], (int) n, &weights2[0], (int) m);
+
+    // Set the cost of each edge
+    int32_t idarc = 0;
+    for (uint32_t i=0; i<n; i++) {
+        for (uint32_t j=0; j<m; j++) {
+            float val=*(D+indI[i]*n2+indJ[j]);
+            net.setCost(di.arcFromId(idarc), val);
+            ++idarc;
+        }
+    }
+
+
+    // Solve the problem with the network simplex algorithm
+
+    int ret=net.run();
+    uint32_t i, j;
+    float cost = 0;
+    Arc a; di.first(a);
+    for (; a != INVALID; di.next(a)) {
+        i = di.source(a);
+        j = di.target(a);
+        float flow = net.flow(a);
+        cost += flow * (*(D+indI[i]*n2+indJ[j-n]));
+    }
+    return cost;
 }

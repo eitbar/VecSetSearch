@@ -204,7 +204,7 @@ namespace lemon {
     int nodeNum() const { return Parent::nodeNum(); }
     /// \brief Number of arcs.
     int64_t arcNum() const { return Parent::arcNum(); }
-  };
+  }; 
 
 
 
