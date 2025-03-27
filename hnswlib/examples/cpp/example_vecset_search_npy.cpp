@@ -228,18 +228,20 @@ public:
         space_ptr = new hnswlib::L2VSSpace(dimension);
         temp_cluster_id = temp;
         std::cout << "init alg" << std::endl;
-        #pragma omp parallel for schedule(dynamic)
+        #pragma omp parallel for schedule(dynamic) num_threads(6)
         for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
             int i = temp_cluster_id[tmpi];
             double cur_time = omp_get_wtime();
             std::cout << "cluster build begin: " + std::to_string(i) + " " + std::to_string(cluster_set[i].size()) << std::endl;
-            alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 12, 60);
-            alg_hnsw_list[i]->setClusterDis(cluster_distance.data());
+            alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 16, 80);
+            //alg_hnsw_list[i]->setClusterDis(cluster_distance.data());
+            #pragma omp parallel for schedule(static) num_threads(120)
             for (int j = 0; j < cluster_set[i].size(); j++) {
                 if (j % 10000 == 0) {
+                    #pragma omp critical
                     std::cout << std::to_string(i) + " " + std::to_string(j) << std::endl;
                 }
-                alg_hnsw_list[i]->addPoint(&base_vectors[cluster_set[i][j]], cluster_set[i][j]);
+                alg_hnsw_list[i]->addClusterPoint(&base_vectors[cluster_set[i][j]], cluster_distance.data(), cluster_set[i][j]);
             }
             std::cout << "cluster build finish: " + std::to_string(i) + " " + std::to_string(omp_get_wtime() - cur_time) << std::endl;
         }
@@ -286,7 +288,7 @@ public:
         // std::cout << " stage1 ";
         double start_time_2 = omp_get_wtime();
         std::unordered_set<int> unique_indices;
-        get_unique_top_k_indices_col(graph_cluster_scores, 32, NUM_GRAPH_CLUSTER, 1, unique_indices); 
+        get_unique_top_k_indices_col(graph_cluster_scores, 32, NUM_GRAPH_CLUSTER, 100, unique_indices); 
         // std::cout << " stage2 ";
         double start_time_3 = omp_get_wtime();
         // convert_to_column_major(query_cluster_scores, col_query_cluster_scores, 32, 262144);
@@ -303,6 +305,9 @@ public:
         std::vector<std::pair<float, hnswlib::labeltype>> merge_result;
         for (const int idx : unique_indices) {
             // std::cout << " " << idx << " ";
+            if (!alg_hnsw_list[idx]) {
+                continue;
+            }
             alg_hnsw_list[idx]->setEf(ef);
             std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw_list[idx]->searchKnnCluster(&query_cluster, 150);
             while(result.size() > 0) {
@@ -1098,24 +1103,25 @@ int main() {
     std::uniform_int_distribution<int> dist(1, std::numeric_limits<int>::max());
     std::string ground_truth_file, index_file;
 
-    std::vector<int> temp_cluster_id(185);
-    std::ifstream codcsfile("/home/zhoujin/project/forremove/VecSetSearch/256_cluster_id_nprob_1_query_100.txt");
+    // std::vector<int> temp_cluster_id(185);
+    // std::ifstream codcsfile("/home/zhoujin/project/forremove/VecSetSearch/256_cluster_id_nprob_1_query_100.txt");
     // std::vector<int> temp_cluster_id(2761);
     // std::ifstream codcsfile("/home/zhoujin/project/forremove/VecSetSearch/temp_cluster_id.txt");
-    std::string cdocs_line;
-    int lineid = 0;
-    while (std::getline(codcsfile, cdocs_line)) { // 逐行读取
-        std::istringstream iss(cdocs_line);  // 创建字符串流
-        int num1;
-        char delimiter;                // 用于捕获 \t 分隔符
-        // 读取两个整数，用 \t 作为分隔符
-        while (iss >> num1) {
-            temp_cluster_id[lineid] = num1;
-            lineid += 1;
-            std::cout << num1 << std::endl;
-        }
-    }
-    codcsfile.close();
+    // std::string cdocs_line;
+    // int lineid = 0;
+    // while (std::getline(codcsfile, cdocs_line)) { // 逐行读取
+    //     std::istringstream iss(cdocs_line);  // 创建字符串流
+    //     int num1;
+    //     char delimiter;                // 用于捕获 \t 分隔符
+    //     // 读取两个整数，用 \t 作为分隔符
+    //     while (iss >> num1) {
+    //         temp_cluster_id[lineid] = num1;
+    //         lineid += 1;
+    //         std::cout << num1 << std::endl;
+    //     }
+    // }
+    // codcsfile.close();
+    std::vector<int> temp_cluster_id = {79, 85, 126, 182, 225, 245};
     std::cout << temp_cluster_id.size() << std::endl;
 
     if (dataset == 0) {
