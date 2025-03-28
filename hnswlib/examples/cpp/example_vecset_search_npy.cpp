@@ -228,17 +228,19 @@ public:
         space_ptr = new hnswlib::L2VSSpace(dimension);
         temp_cluster_id = temp;
         std::cout << "init alg" << std::endl;
+        // omp_set_num_threads(160);
         #pragma omp parallel for schedule(dynamic) num_threads(6)
         for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
             int i = temp_cluster_id[tmpi];
             double cur_time = omp_get_wtime();
             std::cout << "cluster build begin: " + std::to_string(i) + " " + std::to_string(cluster_set[i].size()) << std::endl;
             alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 16, 80);
-            //alg_hnsw_list[i]->setClusterDis(cluster_distance.data());
-            #pragma omp parallel for schedule(static) num_threads(120)
+            // #pragma omp parallel for schedule(dynamic)
+            // #pragma omp parallel for schedule(dynamic, 512)
+            #pragma omp parallel for schedule(static) num_threads(320)
             for (int j = 0; j < cluster_set[i].size(); j++) {
                 if (j % 10000 == 0) {
-                    #pragma omp critical
+                    // #pragma omp critical
                     std::cout << std::to_string(i) + " " + std::to_string(j) << std::endl;
                 }
                 alg_hnsw_list[i]->addClusterPoint(&base_vectors[cluster_set[i][j]], cluster_distance.data(), cluster_set[i][j]);
