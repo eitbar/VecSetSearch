@@ -237,6 +237,7 @@ public:
     void build(int d, const std::vector<vectorset>& base, const std::vector<std::vector<hnswlib::labeltype>>& cluster_set, const std::vector<int>& temp, const std::vector<float>& cluster_distance) {
         double time = omp_get_wtime();
         alg_hnsw_list.resize(NUM_GRAPH_CLUSTER);
+        cluster_entries.resize(NUM_GRAPH_CLUSTER);
         dimension = d;
         base_vectors = base;
         space_ptr = new hnswlib::L2VSSpace(dimension);
@@ -244,20 +245,27 @@ public:
         std::cout << "init alg" << std::endl;
         // omp_set_num_threads(160);
         // #pragma omp parallel for schedule(dynamic) num_threads(6)
+        for (int i = 0; i < cluster_set.size(); i++) {
+            // cluster_entries[i] = cluster_set[i][0];
+            cluster_entries[i] = -1;
+        }
+        alg_hnsw_list[0] = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 16, 80);
         for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
             int i = temp_cluster_id[tmpi];
             double cur_time = omp_get_wtime();
             std::cout << "cluster build begin: " + std::to_string(i) + " " + std::to_string(cluster_set[i].size()) << std::endl;
-            alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 16, 80);
+            // alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 16, 80);
             // #pragma omp parallel for schedule(dynamic)
             // #pragma omp parallel for schedule(dynamic, 512)
+            cluster_entries[i] = cluster_set[i][0];
+            alg_hnsw_list[0]->addClusterPointEntry(&base_vectors[cluster_set[i][0]], cluster_distance.data(), cluster_set[i][0], cluster_set[i][0]);
             #pragma omp parallel for schedule(dynamic)
-            for (int j = 0; j < cluster_set[i].size(); j++) {
-                if (j % 1000 == 0) {
+            for (int j = 1; j < cluster_set[i].size(); j++) {
+                if (j % 5000 == 0) {
                     // #pragma omp critical
                     std::cout << std::to_string(i) + " " + std::to_string(j) << std::endl;
                 }
-                alg_hnsw_list[i]->addClusterPoint(&base_vectors[cluster_set[i][j]], cluster_distance.data(), cluster_set[i][j]);
+                alg_hnsw_list[0]->addClusterPointEntry(&base_vectors[cluster_set[i][j]], cluster_distance.data(), cluster_set[i][j], cluster_set[i][0]);
             }
             std::cout << "cluster build finish: " + std::to_string(i) + " " + std::to_string(omp_get_wtime() - cur_time) << std::endl;
         }
@@ -323,33 +331,21 @@ public:
         // std::cout << start_time_4 << std::endl;
         double cluster_time = omp_get_wtime();
         // std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnFineEdge(&query, k);
-        std::unordered_set<hnswlib::labeltype> search_result;
-        // std::cout << " " << unique_indices.size() << " ";
-        // std::cout << " stage4 ";
-        std::vector<std::pair<float, hnswlib::labeltype>> merge_result;
+
+        std::vector<hnswlib::labeltype> entry_points;
         for (const int idx : unique_indices) {
-            // std::cout << " " << idx << std::endl;
-            if (alg_hnsw_list[idx] == nullptr) {
-                continue;
+            if (cluster_entries[idx] != -1) {
+                entry_points.push_back(cluster_entries[idx]);
             }
-            alg_hnsw_list[idx]->setEf(ef);
-            // std::cout << " " << idx << " " << std::endl;
-            std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw_list[idx]->searchKnnCluster(&query_cluster, ef);
-            // std::cout << result.size() << std::endl;
-            while(result.size() > 0) {
-                if (search_result.find(result.top().second) == search_result.end()) {
-                    search_result.insert(result.top().second);
-                    merge_result.push_back(result.top());
-                }
-                result.pop();
-            }
-            // break;
         }
-        // std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw_list[0]->searchKnnCluster(&query_cluster, ef);
-        // std::cout << alg_hnsw->metric_hops << ' ' << alg_hnsw->metric_distance_computations << std::endl;
-        // alg_hnsw->metric_hops = 0;
-        // alg_hnsw->metric_distance_computations = 0;
-        // std::cout << search_result.size() << " " << merge_result.size() << std::endl;
+        alg_hnsw_list[0]->setEf(ef);
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw_list[0]->searchKnnClusterEntries(&query_cluster, ef, entry_points);
+        std::vector<std::pair<float, hnswlib::labeltype>> merge_result;
+        while(result.size() > 0) {
+            merge_result.push_back(result.top());
+            result.pop();
+        }
+
         double search_time = omp_get_wtime();
         int numrerank = std::min(merge_result.size(), 256ul);
         std::partial_sort(merge_result.begin(), merge_result.begin() + numrerank, merge_result.end(),
@@ -394,19 +390,28 @@ public:
         space_ptr = new hnswlib::L2VSSpace(d);
         temp_cluster_id = temp;
         alg_hnsw_list.resize(NUM_GRAPH_CLUSTER);
+        cluster_entries.resize(NUM_GRAPH_CLUSTER);
         // for(int tmpi = 0; tmpi < NUM_GRAPH_CLUSTER; tmpi++) {
         //     int i = tmpi;
         //     alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, 10, 16, 80);
-        // }        
+        // }     
+        for (int i = 0; i < cluster_set.size(); i++) {
+            // cluster_entries[i] = cluster_set[i][0];
+            cluster_entries[i] = -1;
+        }   
+
+        alg_hnsw_list[0] = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 16, 80);
+        alg_hnsw_list[0]->loadIndex(location + std::to_string(0) + ".bin", space_ptr);
+
         for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
             int i = temp_cluster_id[tmpi];
-            alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 16, 80);
-            alg_hnsw_list[i]->loadIndex(location + std::to_string(i) + ".bin", space_ptr);
+            cluster_entries[i] = cluster_set[i][0];
             for (int j = 0; j < cluster_set[i].size(); j++) {
                 alg_hnsw_list[i]->loadDataAddress(&base_vectors[cluster_set[i][j]], cluster_set[i][j]);
             }
             std::cout << i << std::endl;
         }
+
         std::cout << "load time: " << omp_get_wtime() - time << "sec"<<std::endl;
     }
 
@@ -425,6 +430,7 @@ private:
     hnswlib::L2VSSpace* space_ptr;
     // hnswlib::HierarchicalNSW<float>* alg_hnsw;
     std::vector<int> temp_cluster_id;
+    std::vector<int> cluster_entries;
     std::vector<hnswlib::HierarchicalNSW<float>*> alg_hnsw_list;
 };
 
@@ -1131,7 +1137,7 @@ int main() {
     int dataset = 0;
     bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = false;
+    bool rebuild = true;
     bool reconnect = false;
     int dist_metric = 1;
     int multi_entries_num = 40;
@@ -1421,7 +1427,7 @@ int main() {
     // }
     // std::cout << hnswlib::L2SqrCluster4Search(&query_center[9], &base[3338], 0) << std::endl;
     // return 0;
-    index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/256clusterIndexTFIDF/";
+    index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/256clusterSingleIndexTFIDF/";
     // index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/clusterFilterIndex/";
     // index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/clusterIndex/";
     // std::vector<int> temp_cluster_id(2761);
