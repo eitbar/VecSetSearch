@@ -87,13 +87,21 @@ void topk_avx512(const std::vector<float>& matrix, int rows, int cols, int topk,
 }
 
 void get_unique_top_k_indices_col(const std::vector<float>& matrix, int rows, int cols, int topk, std::unordered_set<int>& unique_indices) {
-    std::vector<std::vector<int>> all_scores(rows);
+    // std::cout << matrix.size() << std::endl;
+    std::vector<int> all_scores(rows * topk);
+    // #pragma omp parallel for
+    // std::cout << matrix.size() << std::endl;
+    // std::cout << rows << std::endl;
+    // std::cout << cols << std::endl;
+    // std::cout << topk << std::endl;
+    // std::cout << all_scores.size() << std::endl;
     #pragma omp parallel for
     for (int row = 0; row < rows; ++row) {
+        // std::cout << row << std::endl;
         std::vector<std::pair<float, int>> scores(cols);
-
         // 提取该列数据
         for (int col = 0; col < cols; ++col) {
+            // std::cout << row << " " << col << std::endl;
             scores[col] = {matrix[row * cols + col], col};  
         }
 
@@ -105,14 +113,20 @@ void get_unique_top_k_indices_col(const std::vector<float>& matrix, int rows, in
 
         // 直接存入集合去重
         for (int i = 0; i < topk; ++i) {
-            all_scores[row].push_back(scores[i].second);
+            // std::cout << row << " " << row * topk + i << " " << scores[i].first << " " << scores[i].second << std::endl;
+            all_scores[row * topk + i] = scores[i].second;
         }
     }
     for (int row = 0; row < rows; ++row) {
         for (int i = 0; i < topk; ++i) {
-            unique_indices.insert(all_scores[row][i]);
+            // std::cout << row << " " << i << std::endl;
+            unique_indices.insert(all_scores[row * topk + i]);
         }
     }
+    // for(int t: unique_indices) {
+    //     std::cout<< t << " ";
+    // }
+    // std::cout << std::endl;
     return;
 }
 
@@ -229,7 +243,7 @@ public:
         temp_cluster_id = temp;
         std::cout << "init alg" << std::endl;
         // omp_set_num_threads(160);
-        #pragma omp parallel for schedule(dynamic) num_threads(6)
+        // #pragma omp parallel for schedule(dynamic) num_threads(6)
         for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
             int i = temp_cluster_id[tmpi];
             double cur_time = omp_get_wtime();
@@ -237,9 +251,9 @@ public:
             alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 16, 80);
             // #pragma omp parallel for schedule(dynamic)
             // #pragma omp parallel for schedule(dynamic, 512)
-            #pragma omp parallel for schedule(static) num_threads(320)
+            #pragma omp parallel for schedule(dynamic)
             for (int j = 0; j < cluster_set[i].size(); j++) {
-                if (j % 10000 == 0) {
+                if (j % 1000 == 0) {
                     // #pragma omp critical
                     std::cout << std::to_string(i) + " " + std::to_string(j) << std::endl;
                 }
@@ -285,20 +299,28 @@ public:
         //         query_cluster_scores[j * 262144 + k] =  tt;
         //     }
         // }
-        // hnswlib::fast_dot_product_blas(262144, 128, 32, center_data.data(), (&query)->data, query_cluster_scores.data());  
+        // hnswlib::fast_dot_product_blas(262144, 128, 32, center_data.data(), (&query)->data, query_cluster_scores.data());
+        // std::cout << " stage0 ";  
         hnswlib::fast_dot_product_blas(32, 128, NUM_GRAPH_CLUSTER, (&query)->data, graph_center_data.data(), graph_cluster_scores.data()); 
         // std::cout << " stage1 ";
         double start_time_2 = omp_get_wtime();
         std::unordered_set<int> unique_indices;
-        get_unique_top_k_indices_col(graph_cluster_scores, 32, NUM_GRAPH_CLUSTER, 100, unique_indices); 
+        // unique_indices.reserve(256);
+        // std::cout << graph_cluster_scores[0] << " " << graph_cluster_scores[1] << " " << graph_cluster_scores[2] << std::endl;
+        get_unique_top_k_indices_col(graph_cluster_scores, 32, NUM_GRAPH_CLUSTER, 50, unique_indices); 
+        // unique_indices.insert(182);
+        // std::vector<int> unique_indices = {79, 85, 126, 182, 225, 245};
+        // std::cout << unique_indices.size() << std::endl;
+        // unique_indices.insert(182);
         // std::cout << " stage2 ";
         double start_time_3 = omp_get_wtime();
         // convert_to_column_major(query_cluster_scores, col_query_cluster_scores, 32, 262144);
         hnswlib::fast_dot_product_blas(262144, 128, 32, center_data.data(), (&query)->data, col_query_cluster_scores.data());  
+        // std::cout << col_query_cluster_scores[0] << std::endl;
         vectorset query_cluster = vectorset(col_query_cluster_scores.data(), nullptr, 262144, 32);
         // std::cout << " stage3 ";
         double start_time_4 = omp_get_wtime();
-
+        // std::cout << start_time_4 << std::endl;
         double cluster_time = omp_get_wtime();
         // std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw->searchKnnFineEdge(&query, k);
         std::unordered_set<hnswlib::labeltype> search_result;
@@ -306,12 +328,14 @@ public:
         // std::cout << " stage4 ";
         std::vector<std::pair<float, hnswlib::labeltype>> merge_result;
         for (const int idx : unique_indices) {
-            // std::cout << " " << idx << " ";
-            if (!alg_hnsw_list[idx]) {
+            // std::cout << " " << idx << std::endl;
+            if (alg_hnsw_list[idx] == nullptr) {
                 continue;
             }
             alg_hnsw_list[idx]->setEf(ef);
-            std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw_list[idx]->searchKnnCluster(&query_cluster, 150);
+            // std::cout << " " << idx << " " << std::endl;
+            std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw_list[idx]->searchKnnCluster(&query_cluster, ef);
+            // std::cout << result.size() << std::endl;
             while(result.size() > 0) {
                 if (search_result.find(result.top().second) == search_result.end()) {
                     search_result.insert(result.top().second);
@@ -319,6 +343,7 @@ public:
                 }
                 result.pop();
             }
+            // break;
         }
         // std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw_list[0]->searchKnnCluster(&query_cluster, ef);
         // std::cout << alg_hnsw->metric_hops << ' ' << alg_hnsw->metric_distance_computations << std::endl;
@@ -326,13 +351,14 @@ public:
         // alg_hnsw->metric_distance_computations = 0;
         // std::cout << search_result.size() << " " << merge_result.size() << std::endl;
         double search_time = omp_get_wtime();
-        std::partial_sort(merge_result.begin(), merge_result.begin() + 256, merge_result.end(),
+        int numrerank = std::min(merge_result.size(), 256ul);
+        std::partial_sort(merge_result.begin(), merge_result.begin() + numrerank, merge_result.end(),
                       [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
                           return a.first < b.first;  // 按 float 排序，越小越靠前
                       });
         // merge_result.resize(256);
         // std::cout << merge_result.size() << std::endl;
-        for (int i = 0; i < 256; i++){
+        for (int i = 0; i < numrerank; i++){
             // for (const hnswlib::labeltype ind : search_result){
             hnswlib::labeltype ind = merge_result[i].second;
             res.push_back(std::make_pair(ind, hnswlib::L2SqrVecCF(&query, &base_vectors[ind], 0)));
@@ -368,16 +394,18 @@ public:
         space_ptr = new hnswlib::L2VSSpace(d);
         temp_cluster_id = temp;
         alg_hnsw_list.resize(NUM_GRAPH_CLUSTER);
+        // for(int tmpi = 0; tmpi < NUM_GRAPH_CLUSTER; tmpi++) {
+        //     int i = tmpi;
+        //     alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, 10, 16, 80);
+        // }        
         for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
             int i = temp_cluster_id[tmpi];
-            alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 8, 40);
+            alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 16, 80);
             alg_hnsw_list[i]->loadIndex(location + std::to_string(i) + ".bin", space_ptr);
             for (int j = 0; j < cluster_set[i].size(); j++) {
-                if (j % 10000 == 0) {
-                    std::cout << j << std::endl;
-                }
                 alg_hnsw_list[i]->loadDataAddress(&base_vectors[cluster_set[i][j]], cluster_set[i][j]);
             }
+            std::cout << i << std::endl;
         }
         std::cout << "load time: " << omp_get_wtime() - time << "sec"<<std::endl;
     }
@@ -530,7 +558,7 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
     std::string gcembfile_name = "/home/zhoujin/project/forremove/VecSetSearch/256_cluster_centroids.npy";
     std::string qembfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qembs_32_6980.npy";
     std::string qrelfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qrels_6980.tsv";
-    std::string cdocsfile_name =  "/home/zhoujin/project/forremove/VecSetSearch/256_cluster_info_filter.txt";  
+    std::string cdocsfile_name =  "/home/zhoujin/project/forremove/VecSetSearch/cluster_data/256_cluster_info_tfidf_2.txt";  
 
     for (int i = 0; i < file_numbers; i++) {
         std::string embfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/encoding" + std::to_string(i) + "_float16.npy";
@@ -584,6 +612,13 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
     size_t num_cembs_elements = cembs_npy.shape[0] * cembs_npy.shape[1];
     for (size_t i = 0; i < num_cembs_elements; ++i) {
         center_data[i] = (static_cast<float>(half_to_float(raw_cembs_data[i])));
+    }
+
+    cnpy::NpyArray gcembs_npy = cnpy::npy_load(gcembfile_name);
+    float* raw_gcembs_data = gcembs_npy.data<float>();
+    size_t num_gcembs_elements = gcembs_npy.shape[0] * gcembs_npy.shape[1];
+    for (size_t i = 0; i < num_gcembs_elements; ++i) {
+        graph_center_data[i] = (static_cast<float>((raw_gcembs_data[i])));
     }
     // std::cout << num_cembs_elements << std::endl;
 
@@ -1096,7 +1131,7 @@ int main() {
     int dataset = 0;
     bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = true;
+    bool rebuild = false;
     bool reconnect = false;
     int dist_metric = 1;
     int multi_entries_num = 40;
@@ -1123,8 +1158,10 @@ int main() {
     //     }
     // }
     // codcsfile.close();
-    std::vector<int> temp_cluster_id = {79, 85, 126, 182, 225, 245};
+    std::vector<int> temp_cluster_id = {1, 2, 4, 5, 6, 10, 12, 13, 14, 15, 19, 20, 28, 34, 38, 39, 40, 41, 45, 52, 53, 54, 55, 61, 63, 66, 67, 68, 72, 77, 80, 84, 88, 89, 91, 99, 100, 110, 114, 117, 118, 121, 126, 132, 134, 135, 140, 142, 146, 153, 158, 159, 161, 164, 165, 167, 171, 172, 176, 181, 184, 185, 192, 200, 208, 210, 213, 214, 217, 218, 219, 225, 227, 230, 231, 232, 233, 235, 239, 242, 244, 247, 249, 252, 255};
+    // std::vector<int> temp_cluster_id = {182};
     std::cout << temp_cluster_id.size() << std::endl;
+    // std::vector<int> query182 = {0, 11, 22, 23, 40, 42, 53, 60, 70, 78, 82, 83};
 
     if (dataset == 0) {
         if (dist_metric == 0) {
@@ -1384,7 +1421,7 @@ int main() {
     // }
     // std::cout << hnswlib::L2SqrCluster4Search(&query_center[9], &base[3338], 0) << std::endl;
     // return 0;
-    index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/256clusterIndexSingle/";
+    index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/256clusterIndexTFIDF/";
     // index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/clusterFilterIndex/";
     // index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/clusterIndex/";
     // std::vector<int> temp_cluster_id(2761);
@@ -1399,7 +1436,7 @@ int main() {
         solution.load(index_file, VECTOR_DIM, base, cluster_set, temp_cluster_id);
     }
 
-    for (int tmpef = 50; tmpef <= 200; tmpef += 50) {
+    for (int tmpef = 200; tmpef <= 2000; tmpef += 100) {
         double total_recall = 0.0;
         double total_cf_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
@@ -1414,6 +1451,9 @@ int main() {
         l2_sqr_call_count.store(0);
         std::cout<<"Processing Queries HNSW"<<std::endl;
         // #pragma omp parallel for schedule(dynamic)
+        // for (int tmpi = 0; tmpi < query182.size(); tmpi ++) {
+        //     int i = query182[tmpi];
+        //     std::cout << i << std::endl;
         for (int i = 0; i < NUM_QUERY_SETS; ++i) {
             // std::cout << i << std::endl;
             double wcf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth[i], qrels[i]);
@@ -1432,6 +1472,7 @@ int main() {
                 // std::cout << test_query_cluster_scores[262144 * 32 - 1] << " " << col_query_cluster_scores[262144 * 32 - 1] << std::endl;
                 // std::cout << solution_indices.size() << std::endl;
                 // std::cout << center_data.size() << std::endl;
+                // std::cout << graph_center_data.size() << std::endl;
                 double query_time = solution.search_with_cluster(query[i], test_query_cluster_scores, col_query_cluster_scores, center_data, graph_center_data, K, tmpef, solution_indices);     
                 total_query_time += query_time;
                 double recall = calculate_recall(solution_indices, bf_ground_truth[i]);

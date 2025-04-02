@@ -2803,6 +2803,46 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
         }
     }
 
+    void addClusterPointEntry(const void *data_point, const float *cluster_distance, labeltype label, labeltype enrty, bool replace_deleted = false) {
+        if ((allow_replace_deleted_ == false) && (replace_deleted == true)) {
+            throw std::runtime_error("Replacement of deleted elements is disabled in constructor");
+        }
+
+        // lock all operations with element by label
+        std::unique_lock <std::mutex> lock_label(getLabelOpMutex(label));
+        if (!replace_deleted) {
+            addClusterPointEntry(data_point, cluster_distance, label, enrty, -1);
+            return;
+        }
+        // check if there is vacant place
+        tableint internal_id_replaced;
+        std::unique_lock <std::mutex> lock_deleted_elements(deleted_elements_lock);
+        bool is_vacant_place = !deleted_elements.empty();
+        if (is_vacant_place) {
+            internal_id_replaced = *deleted_elements.begin();
+            deleted_elements.erase(internal_id_replaced);
+        }
+        lock_deleted_elements.unlock();
+
+        // if there is no vacant place then add or update point
+        // else add point to vacant place
+        if (!is_vacant_place) {
+            addClusterPointEntry(data_point, cluster_distance, label, enrty, -1);
+        } else {
+            // we assume that there are no concurrent operations on deleted element
+            labeltype label_replaced = getExternalLabel(internal_id_replaced);
+            setExternalLabel(internal_id_replaced, label);
+
+            std::unique_lock <std::mutex> lock_table(label_lookup_lock);
+            label_lookup_.erase(label_replaced);
+            label_lookup_[label] = internal_id_replaced;
+            lock_table.unlock();
+
+            unmarkDeletedInternal(internal_id_replaced);
+            updatePoint(data_point, internal_id_replaced, 1.0);
+        }
+    }
+
     void updatePoint(const void *dataPoint, tableint internalId, float updateNeighborProbability) {
         // update the feature vector associated with existing point with new vector
         memcpy(getDataByInternalId(internalId), dataPoint, data_size_);
@@ -3169,6 +3209,96 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
         return cur_c;
     }
 
+
+    tableint addClusterPointEntry(const void *data_point, const float *cluster_distance, labeltype label, labeltype entry, int level) {
+        tableint cur_c = 0;
+        {
+            // Checking if the element with the same label already exists
+            // if so, updating it *instead* of creating a new element.
+            std::unique_lock <std::mutex> lock_table(label_lookup_lock);
+            auto search = label_lookup_.find(label);
+            if (search != label_lookup_.end()) {
+                tableint existingInternalId = search->second;
+                cur_c = existingInternalId;
+                lock_table.unlock();
+            }
+
+            if (cur_element_count >= max_elements_) {
+                throw std::runtime_error("The number of elements exceeds the specified limit");
+            }
+
+            cur_c = cur_element_count;
+            cur_element_count++;
+            label_lookup_[label] = cur_c;
+        }
+
+        std::unique_lock <std::mutex> lock_el(link_list_locks_[cur_c]);
+        int curlevel = getRandomLevel(mult_);
+        if (level > 0)
+            curlevel = level;
+
+        element_levels_[cur_c] = curlevel;
+
+        std::unique_lock <std::mutex> templock(global);
+        int maxlevelcopy = maxlevel_;
+        if (curlevel <= maxlevelcopy)
+            templock.unlock();
+        tableint currObj = 0;
+        tableint enterpoint_copy = 0;
+        {
+            std::unique_lock <std::mutex> lock_table(label_lookup_lock);
+            auto search = label_lookup_.find(entry);
+            if (search != label_lookup_.end()) {
+                tableint existingInternalId = search->second;
+                currObj = existingInternalId;
+                enterpoint_copy = existingInternalId;
+                lock_table.unlock();
+            }
+        }
+
+        memset(data_level0_memory_ + cur_c * size_data_per_element_ + offsetLevel0_, 0, size_data_per_element_);
+
+        // Initialisation of the data and label
+        // std::cout << "Before memcpy: " << *getExternalLabeLp(cur_c) << " " << getExternalLabel(cur_c) <<  " " << label << std::endl;
+        memcpy(getExternalLabeLp(cur_c), &label, sizeof(labeltype));
+        // std::cout << "After memcpy: " << *getExternalLabeLp(cur_c) << " " << getExternalLabel(cur_c) <<  " " << label << std::endl;
+        memcpy(getDataByInternalId(cur_c), data_point, data_size_);
+        // *getExternalLabeLp(cur_c) = label;
+        // std::cout << data_size_ << " " << sizeof(vectorset) << std::endl;
+        // std::cout << *getExternalLabeLp(cur_c) << " " << (labeltype)getExternalLabel(cur_c) << " " << label << " " << sizeof(label) << " " << sizeof(labeltype) << std::endl;
+        // // std::cout << ((vectorset*)data_point)->vecnum << " " << (float)(((vectorset*)data_point)->data)[0] << " " << (float)(((vectorset*)data_point)->data)[1] <<  std::endl;
+        // std::cout << ((vectorset*)getDataByInternalId(cur_c))->vecnum << " " << (float)(((vectorset*)getDataByInternalId(cur_c))->data)[0]  << " " << (float)(((vectorset*)getDataByInternalId(cur_c))->data)[1] << std::endl;
+        if (curlevel) {
+            linkLists_[cur_c] = (char *) malloc(size_links_per_element_ * curlevel + 1);
+            if (linkLists_[cur_c] == nullptr)
+                throw std::runtime_error("Not enough memory: addPoint failed to allocate linklist");
+            memset(linkLists_[cur_c], 0, size_links_per_element_ * curlevel + 1);
+        }
+        if (label == entry) {
+            enterpoint_node_ = cur_c;
+            maxlevel_ = curlevel;
+        } else {
+
+            bool epDeleted = isMarkedDeleted(enterpoint_copy);
+            int level = 0;
+            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = searchBaseLayerClusterAppr(
+                    currObj, data_point, cluster_distance, level);
+            if (epDeleted) {
+                // std::cout << "add Point: emplace " << ((vectorset*)data_point)->vecnum << " " <<  ((vectorset*)getDataByInternalId(enterpoint_copy))->vecnum << std::endl;
+                top_candidates.emplace(fstdistfuncClusterEMD((vectorset*)data_point, (vectorset*)getDataByInternalId(enterpoint_copy), cluster_distance), enterpoint_copy);
+                if (top_candidates.size() > ef_construction_)
+                    top_candidates.pop();
+            }
+            currObj = mutuallyConnectNewElementCluster(data_point, cluster_distance, cur_c, top_candidates, level, false);
+        }
+
+        // // Releasing lock for the maximum level
+        // if (curlevel > maxlevelcopy) {
+        //     enterpoint_node_ = cur_c;
+        //     maxlevel_ = curlevel;
+        // }
+        return cur_c;
+    }
 
 
     tableint addPointLogicHierarchical(const void *data_point, labeltype label, int level) {

@@ -66,7 +66,10 @@
         "set": "cpp",
         "regex": "cpp",
         "iomanip": "cpp",
-        "typeindex": "cpp"
+        "typeindex": "cpp",
+        "optional": "cpp",
+        "ranges": "cpp",
+        "span": "cpp"
     },
     "cmake.ignoreCMakeListsMissing": true
 }

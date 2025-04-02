@@ -116,7 +116,7 @@ int EMD_wrap(int n1, int n2, double *X, double *Y, double *D, double *G,
 
 
 
-float EMD_wrap_self_float(int n1, int n2, double *X, double *Y, double *D, uint64_t maxIter)  {
+float EMD_wrap_self(int n1, int n2, double *X, double *Y, double *D, uint64_t maxIter)  {
     // beware M and C are stored in row major C style!!!
 
     using namespace lemon;
@@ -205,7 +205,7 @@ float EMD_wrap_self_float(int n1, int n2, double *X, double *Y, double *D, uint6
 
 
 
-float EMD_wrap_self(int n1, int n2, float *X, float *Y, float *D, uint32_t maxIter)  {
+float EMD_wrap_self_float(int n1, int n2, float *X, float *Y, float *D, uint32_t maxIter)  {
     // beware M and C are stored in row major C style!!!
 
     using namespace lemon;
