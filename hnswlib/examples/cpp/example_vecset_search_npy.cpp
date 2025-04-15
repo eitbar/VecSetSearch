@@ -27,7 +27,7 @@ int NUM_QUERY_SETS = 100;
 constexpr int QUERY_VECTOR_COUNT = 32;
 constexpr int K = 100;
 constexpr int NUM_CLUSTER = 262144;
-constexpr int NUM_GRAPH_CLUSTER = 256;
+constexpr int NUM_GRAPH_CLUSTER = 20480;
 
 void convert_to_column_major(const std::vector<float>& row_major_matrix, std::vector<float>& col_major_matrix, int rows, int cols) {
     col_major_matrix.resize(rows * cols); // 重新分配空间
@@ -259,7 +259,7 @@ public:
             // #pragma omp parallel for schedule(dynamic, 512)
             cluster_entries[i] = cluster_set[i][0];
             alg_hnsw_list[0]->addClusterPointEntry(&base_vectors[cluster_set[i][0]], cluster_distance.data(), cluster_set[i][0], cluster_set[i][0]);
-            #pragma omp parallel for schedule(dynamic)
+            // #pragma omp parallel for schedule(dynamic)
             for (int j = 1; j < cluster_set[i].size(); j++) {
                 if (j % 5000 == 0) {
                     // #pragma omp critical
@@ -268,6 +268,71 @@ public:
                 alg_hnsw_list[0]->addClusterPointEntry(&base_vectors[cluster_set[i][j]], cluster_distance.data(), cluster_set[i][j], cluster_set[i][0]);
             }
             std::cout << "cluster build finish: " + std::to_string(i) + " " + std::to_string(omp_get_wtime() - cur_time) << std::endl;
+        }
+        std::cout << "Build time: " << omp_get_wtime() - time << "sec"<<std::endl;
+        // Add any necessary pre-computation or indexing for the optimized search
+    }
+
+    void build_multi_fine_cluster(int d, const std::vector<vectorset>& base, const std::vector<std::vector<hnswlib::labeltype>>& cluster_set, const std::vector<int>& temp, const std::vector<float>& cluster_distance) {
+        double time = omp_get_wtime();
+        alg_hnsw_list.resize(NUM_CLUSTER);
+        dimension = d;
+        base_vectors = base;
+        space_ptr = new hnswlib::L2VSSpace(dimension);
+        temp_cluster_id = temp;
+        std::cout << "init alg" << std::endl;
+        for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
+            int i = temp_cluster_id[tmpi];
+            double cur_time = omp_get_wtime();
+            std::cout << "cluster build begin: " + std::to_string(i) + " " + std::to_string(cluster_set[i].size()) << std::endl;
+            alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 8, 40);
+            #pragma omp parallel for schedule(dynamic)
+            for (int j = 0; j < cluster_set[i].size(); j++) {
+                if (j % 1000 == 0) {
+                    std::cout << std::to_string(i) + " " + std::to_string(j) << std::endl;
+                }
+                alg_hnsw_list[i]->addClusterPoint(&base_vectors[cluster_set[i][j]], cluster_distance.data(), cluster_set[i][j]);
+            }
+            std::cout << "cluster build finish: " + std::to_string(i) + " " + std::to_string(omp_get_wtime() - cur_time) << std::endl;
+        }
+        std::cout << "Build time: " << omp_get_wtime() - time << "sec"<<std::endl;
+        // Add any necessary pre-computation or indexing for the optimized search
+    }
+
+    void build_fine_cluster(int d, const std::vector<vectorset>& base, const std::vector<std::vector<hnswlib::labeltype>>& cluster_set, const std::vector<int>& temp, const std::vector<float>& cluster_distance) {
+        double time = omp_get_wtime();
+        alg_hnsw_list.resize(1);
+        dimension = d;
+        base_vectors = base;
+        space_ptr = new hnswlib::L2VSSpace(dimension);
+        temp_cluster_id = temp;
+        std::cout << "init alg" << std::endl;
+        cluster_entries.resize(NUM_GRAPH_CLUSTER);
+        for (int i = 0; i < cluster_set.size(); i++) {
+            // cluster_entries[i] = cluster_set[i][0];
+            cluster_entries[i] = -1;
+        }
+        alg_hnsw_list[0] = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 24, 80);
+        for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
+            int i = temp_cluster_id[tmpi];
+            double cur_time = omp_get_wtime();
+            std::cout << "cluster build begin: " + std::to_string(i) + " " + std::to_string(cluster_set[i].size()) << std::endl;
+            alg_hnsw_list[0]->entry_map.clear();
+            cluster_entries[i] = cluster_set[i][0];
+            alg_hnsw_list[0]->addClusterPointEntry(&base_vectors[cluster_set[i][0]], cluster_distance.data(), cluster_set[i][0], cluster_set[i][0]);
+
+            #pragma omp parallel for schedule(dynamic)
+            for (int j = 1; j < cluster_set[i].size(); j++) {
+                if (j % 1000 == 0) {
+                    // #pragma omp critical
+                    std::cout << std::to_string(i) + " " + std::to_string(j) << std::endl;
+                }
+                // std::cout << j << " " << std::flush; 
+                alg_hnsw_list[0]->addClusterPointEntry(&base_vectors[cluster_set[i][j]], cluster_distance.data(), cluster_set[i][j], cluster_set[i][0]);
+                // std::cout << j << " " << std::endl; 
+            }
+            
+            std::cout << "cluster build finish: " + std::to_string(i) + " " + std::to_string(omp_get_wtime() - cur_time) << std::endl;   
         }
         std::cout << "Build time: " << omp_get_wtime() - time << "sec"<<std::endl;
         // Add any necessary pre-computation or indexing for the optimized search
@@ -288,6 +353,107 @@ public:
     //     double end_time = omp_get_wtime();
     //     return end_time - start_time;
     // }
+
+
+    double search_with_multi_fine_cluster(const vectorset& query, std::vector<float>& query_cluster_scores, std::vector<float>& col_query_cluster_scores, std::vector<float>& center_data, std::vector<float>& graph_center_data, int k, int ef, std::vector<std::pair<int, float>>& res) {
+        res.clear();
+        double start_time = omp_get_wtime();
+        hnswlib::fast_dot_product_blas(32, 128, NUM_CLUSTER, (&query)->data, center_data.data(), query_cluster_scores.data()); 
+        double start_time_2 = omp_get_wtime();
+        std::unordered_set<int> unique_indices;
+        get_unique_top_k_indices_col(query_cluster_scores, 32, NUM_CLUSTER, 2, unique_indices); 
+        double start_time_3 = omp_get_wtime();
+        convert_to_column_major(query_cluster_scores, col_query_cluster_scores, 32, NUM_CLUSTER); 
+        vectorset query_cluster = vectorset(col_query_cluster_scores.data(), nullptr, NUM_CLUSTER, 32);
+        double start_time_4 = omp_get_wtime();
+        double cluster_time = omp_get_wtime();
+
+        std::unordered_set<hnswlib::labeltype> search_result;
+        std::vector<std::pair<float, hnswlib::labeltype>> merge_result;
+        for (const int idx : unique_indices) {
+            alg_hnsw_list[idx]->setEf(ef);
+            std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw_list[idx]->searchKnnCluster(&query_cluster, 150);
+            while(result.size() > 0) {
+                if (search_result.find(result.top().second) == search_result.end()) {
+                    search_result.insert(result.top().second);
+                    merge_result.push_back(result.top());
+                }
+                result.pop();
+            }
+        }
+        double search_time = omp_get_wtime();
+        std::partial_sort(merge_result.begin(), merge_result.begin() + 256, merge_result.end(),
+                      [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
+                          return a.first < b.first;  // 按 float 排序，越小越靠前
+                      });
+        for (int i = 0; i < 256; i++){
+            hnswlib::labeltype ind = merge_result[i].second;
+            res.push_back(std::make_pair(ind, hnswlib::L2SqrVecCF(&query, &base_vectors[ind], 0)));
+        }
+        std::partial_sort(res.begin(), res.begin() + k, res.end(),
+                      [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
+                          return a.second < b.second;  // 按 float 排序，越小越靠前
+                      });
+        res.resize(k);
+        double end_time = omp_get_wtime();
+        std::cout << "cluster calc: " << start_time_2 - start_time << " cluster find: " << start_time_3 - start_time_2 << " transfer col storage: " << start_time_4 - start_time_3  << " search time: " << search_time - cluster_time << " search calc count: " << l2_vec_call_count.load() << " rerank time: " << end_time - search_time << std::endl;
+        return end_time - start_time;
+    }
+
+
+    double search_with_fine_cluster(const vectorset& query, std::vector<float>& query_cluster_scores, std::vector<float>& col_query_cluster_scores, std::vector<float>& center_data, std::vector<float>& graph_center_data, int k, int ef, std::vector<std::pair<int, float>>& res) {
+        res.clear();
+        double start_time = omp_get_wtime();
+        hnswlib::fast_dot_product_blas(32, 128, NUM_GRAPH_CLUSTER, (&query)->data, graph_center_data.data(), query_cluster_scores.data()); 
+        double start_time_2 = omp_get_wtime();
+        std::unordered_set<int> unique_indices;
+        get_unique_top_k_indices_col(query_cluster_scores, 32, NUM_GRAPH_CLUSTER, 100, unique_indices); 
+        double start_time_3 = omp_get_wtime();
+        hnswlib::fast_dot_product_blas(NUM_CLUSTER, 128, 32, center_data.data(), (&query)->data, col_query_cluster_scores.data()); 
+        // convert_to_column_major(query_cluster_scores, col_query_cluster_scores, 32, NUM_CLUSTER); 
+        vectorset query_cluster = vectorset(col_query_cluster_scores.data(), nullptr, NUM_CLUSTER, 32);
+        double start_time_4 = omp_get_wtime();
+        double cluster_time = omp_get_wtime();
+
+        std::vector<hnswlib::labeltype> entry_points;
+        for (const int idx : unique_indices) {
+            if (cluster_entries[idx] != -1) {
+                entry_points.push_back(cluster_entries[idx]);
+            }
+        }
+        alg_hnsw_list[0]->setEf(ef);
+        std::priority_queue<std::pair<float, hnswlib::labeltype>> result = alg_hnsw_list[0]->searchKnnClusterEntries(&query_cluster, ef, entry_points);
+        std::vector<std::pair<float, hnswlib::labeltype>> merge_result;
+        while(result.size() > 0) {
+            merge_result.push_back(result.top());
+            result.pop();
+        }
+
+        double search_time = omp_get_wtime();
+        int numrerank = std::min(merge_result.size(), 256ul);
+        std::partial_sort(merge_result.begin(), merge_result.begin() + numrerank, merge_result.end(),
+                      [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
+                          return a.first < b.first;  // 按 float 排序，越小越靠前
+                      });
+        // merge_result.resize(256);
+        // std::cout << merge_result.size() << std::endl;
+        for (int i = 0; i < numrerank; i++){
+            // for (const hnswlib::labeltype ind : search_result){
+            hnswlib::labeltype ind = merge_result[i].second;
+            res.push_back(std::make_pair(ind, hnswlib::L2SqrVecCF(&query, &base_vectors[ind], 0)));
+        }
+        // std::cout << res.size() << std::endl;
+        std::partial_sort(res.begin(), res.begin() + k, res.end(),
+                      [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
+                          return a.second < b.second;  // 按 float 排序，越小越靠前
+                      });
+        res.resize(k);
+        // std::cout << res.size() << std::endl;
+        double end_time = omp_get_wtime();
+        // std::cout << start_time_2 - start_time << " " << start_time_3 - start_time_2 << " " << start_time_4 - start_time_3 << std::endl;
+        std::cout << "cluster calc: " << start_time_2 - start_time << " cluster find: " << start_time_3 - start_time_2 << " transfer col storage: " << start_time_4 - start_time_3  << " search time: " << search_time - cluster_time << " search calc count: " << l2_vec_call_count.load() << " rerank time: " << end_time - search_time << std::endl;
+        return end_time - start_time;
+    }
 
     double search_with_cluster(const vectorset& query, std::vector<float>& query_cluster_scores, std::vector<float>& col_query_cluster_scores, std::vector<float>& center_data, std::vector<float>& graph_center_data, int k, int ef, std::vector<std::pair<int, float>>& res) {
         // std::cout << " stage-2 ";
@@ -374,6 +540,13 @@ public:
 
     void save(const std::string &location) {
         double time = omp_get_wtime();
+        std::string locai = location + std::to_string(0) + ".bin";
+        alg_hnsw_list[0]->saveIndex(locai);
+        std::cout << "save time: " << omp_get_wtime() - time << "sec"<<std::endl;
+    }
+
+    void save_multi_fine_cluster(const std::string &location) {
+        double time = omp_get_wtime();
         for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
             int i = temp_cluster_id[tmpi];
             std::string locai = location + std::to_string(i) + ".bin";
@@ -381,6 +554,34 @@ public:
         }
         // alg_hnsw->saveIndex(location);
         std::cout << "save time: " << omp_get_wtime() - time << "sec"<<std::endl;
+    }
+
+    void save_fine_cluster(const std::string &location) {
+        double time = omp_get_wtime();
+        std::string locai = location + std::to_string(0) + ".bin";
+        alg_hnsw_list[0]->saveIndex(locai);
+        std::cout << "save time: " << omp_get_wtime() - time << "sec"<<std::endl;
+    }
+
+    void load_multi_fine_cluster(const std::string &location, int d, const std::vector<vectorset>& base, const std::vector<std::vector<hnswlib::labeltype>>& cluster_set, const std::vector<int>& temp) {
+        double time = omp_get_wtime();
+        dimension = d;
+        base_vectors = base;
+        space_ptr = new hnswlib::L2VSSpace(d);
+        temp_cluster_id = temp;
+        alg_hnsw_list.resize(NUM_CLUSTER);
+        for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
+            int i = temp_cluster_id[tmpi];
+            std::string locai = location + std::to_string(i) + ".bin";
+            alg_hnsw_list[i] = new hnswlib::HierarchicalNSW<float>(space_ptr, cluster_set[i].size() + 1, 8, 40);
+            alg_hnsw_list[i]->loadIndex(location + std::to_string(i) + ".bin", space_ptr);
+            for (int j = 0; j < cluster_set[i].size(); j++) {
+                alg_hnsw_list[i]->loadDataAddress(&base_vectors[cluster_set[i][j]], cluster_set[i][j]);
+            }
+            std::cout << i << std::endl;
+        }
+
+        std::cout << "load time: " << omp_get_wtime() - time << "sec"<<std::endl;
     }
 
     void load(const std::string &location, int d, const std::vector<vectorset>& base, const std::vector<std::vector<hnswlib::labeltype>>& cluster_set, const std::vector<int>& temp) {
@@ -399,15 +600,15 @@ public:
             // cluster_entries[i] = cluster_set[i][0];
             cluster_entries[i] = -1;
         }   
-
-        alg_hnsw_list[0] = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 16, 80);
+        alg_hnsw_list[0] = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 24, 80);
+        // alg_hnsw_list[0] = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 16, 80);
         alg_hnsw_list[0]->loadIndex(location + std::to_string(0) + ".bin", space_ptr);
 
         for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
             int i = temp_cluster_id[tmpi];
             cluster_entries[i] = cluster_set[i][0];
             for (int j = 0; j < cluster_set[i].size(); j++) {
-                alg_hnsw_list[i]->loadDataAddress(&base_vectors[cluster_set[i][j]], cluster_set[i][j]);
+                alg_hnsw_list[0]->loadDataAddress(&base_vectors[cluster_set[i][j]], cluster_set[i][j]);
             }
             std::cout << i << std::endl;
         }
@@ -415,6 +616,33 @@ public:
         std::cout << "load time: " << omp_get_wtime() - time << "sec"<<std::endl;
     }
 
+    void load_fine_cluster(const std::string &location, int d, const std::vector<vectorset>& base, const std::vector<std::vector<hnswlib::labeltype>>& cluster_set, const std::vector<int>& temp) {
+        double time = omp_get_wtime();
+        dimension = d;
+        base_vectors = base;
+        space_ptr = new hnswlib::L2VSSpace(d);
+        temp_cluster_id = temp;
+        alg_hnsw_list.resize(1);
+        cluster_entries.resize(NUM_GRAPH_CLUSTER);
+        for (int i = 0; i < cluster_set.size(); i++) {
+            // cluster_entries[i] = cluster_set[i][0];
+            cluster_entries[i] = -1;
+        }   
+
+        alg_hnsw_list[0] = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 24, 80);
+        alg_hnsw_list[0]->loadIndex(location + std::to_string(0) + ".bin", space_ptr);
+
+        for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
+            int i = temp_cluster_id[tmpi];
+            cluster_entries[i] = cluster_set[i][0];
+            for (int j = 0; j < cluster_set[i].size(); j++) {
+                alg_hnsw_list[0]->loadDataAddress(&base_vectors[cluster_set[i][j]], cluster_set[i][j]);
+            }
+            std::cout << i << std::endl;
+        }
+
+        std::cout << "load time: " << omp_get_wtime() - time << "sec"<<std::endl;
+    }
     // void addEdge(hnswlib::labeltype p1, hnswlib::labeltype p2) {
     //     alg_hnsw->mutuallyConnectTwoElement(p1, p2);
     //     alg_hnsw->mutuallyConnectTwoElement(p2, p1);
@@ -561,10 +789,14 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
     long long code_offset = 0;
     long long all_codes = 0;  
     std::string cembfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/new_center_code/centroids.npy";
-    std::string gcembfile_name = "/home/zhoujin/project/forremove/VecSetSearch/256_cluster_centroids.npy";
+    // std::string gcembfile_name = "/home/zhoujin/project/forremove/VecSetSearch/256_cluster_centroids.npy";
     std::string qembfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qembs_32_6980.npy";
-    std::string qrelfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qrels_6980.tsv";
-    std::string cdocsfile_name =  "/home/zhoujin/project/forremove/VecSetSearch/cluster_data/256_cluster_info_tfidf_2.txt";  
+    std::string qrelfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/qrels_6980.tsv"; 
+    // std::string gcembfile_name = "/home/zhoujin/project/forremove/VecSetSearch/256_cluster_centroids.npy";
+    // std::string cdocsfile_name =  "/home/zhoujin/project/forremove/VecSetSearch/cluster_info.txt";  
+    
+    std::string cdocsfile_name =  "/home/zhoujin/project/forremove/VecSetSearch/cluster_data/20480_cluster_info_tfidf_dynamic.txt";
+    std::string gcembfile_name = "/home/zhoujin/project/forremove/VecSetSearch/cluster_data/20480_cluster_centroids.npy"; 
 
     for (int i = 0; i < file_numbers; i++) {
         std::string embfile_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/encoding" + std::to_string(i) + "_float16.npy";
@@ -1150,6 +1382,9 @@ int main() {
     // std::ifstream codcsfile("/home/zhoujin/project/forremove/VecSetSearch/256_cluster_id_nprob_1_query_100.txt");
     // std::vector<int> temp_cluster_id(2761);
     // std::ifstream codcsfile("/home/zhoujin/project/forremove/VecSetSearch/temp_cluster_id.txt");
+
+    // std::vector<int> temp_cluster_id(1484);
+    // std::ifstream codcsfile("/home/zhoujin/project/forremove/VecSetSearch/temp_cluster_id_nprob_2.txt");
     // std::string cdocs_line;
     // int lineid = 0;
     // while (std::getline(codcsfile, cdocs_line)) { // 逐行读取
@@ -1164,7 +1399,12 @@ int main() {
     //     }
     // }
     // codcsfile.close();
-    std::vector<int> temp_cluster_id = {1, 2, 4, 5, 6, 10, 12, 13, 14, 15, 19, 20, 28, 34, 38, 39, 40, 41, 45, 52, 53, 54, 55, 61, 63, 66, 67, 68, 72, 77, 80, 84, 88, 89, 91, 99, 100, 110, 114, 117, 118, 121, 126, 132, 134, 135, 140, 142, 146, 153, 158, 159, 161, 164, 165, 167, 171, 172, 176, 181, 184, 185, 192, 200, 208, 210, 213, 214, 217, 218, 219, 225, 227, 230, 231, 232, 233, 235, 239, 242, 244, 247, 249, 252, 255};
+    std::vector<int> temp_cluster_id(NUM_GRAPH_CLUSTER);
+    for (int i = 0;i < NUM_GRAPH_CLUSTER; i++) {
+        temp_cluster_id[i] = i;
+    }
+
+    // std::vector<int> temp_cluster_id = {1, 2, 4, 5, 6, 10, 12, 13, 14, 15, 19, 20, 28, 34, 38, 39, 40, 41, 45, 52, 53, 54, 55, 61, 63, 66, 67, 68, 72, 77, 80, 84, 88, 89, 91, 99, 100, 110, 114, 117, 118, 121, 126, 132, 134, 135, 140, 142, 146, 153, 158, 159, 161, 164, 165, 167, 171, 172, 176, 181, 184, 185, 192, 200, 208, 210, 213, 214, 217, 218, 219, 225, 227, 230, 231, 232, 233, 235, 239, 242, 244, 247, 249, 252, 255};
     // std::vector<int> temp_cluster_id = {182};
     std::cout << temp_cluster_id.size() << std::endl;
     // std::vector<int> query182 = {0, 11, 22, 23, 40, 42, 53, 60, 70, 78, 82, 83};
@@ -1216,7 +1456,8 @@ int main() {
             query_data.resize((long long) NUM_QUERY_SETS * 128 * 32 + 1);
             base_data_codes.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 80);
             center_data.resize((long long) 262144 * 128);
-            graph_center_data.resize(NUM_GRAPH_CLUSTER * 128);
+            graph_center_data.resize((long long) NUM_GRAPH_CLUSTER * 128);
+            // cluster_set.resize(NUM_GRAPH_CLUSTER);
             cluster_set.resize(NUM_GRAPH_CLUSTER);
             // std::cout<< (long long) 25000 * MSMACRO_TEST_NUMBER * 80 << std::endl;
             load_from_msmarco(base_data, base, query_data, query, base_data_codes, center_data, graph_center_data, cluster_set, MSMACRO_TEST_NUMBER, qrels);
@@ -1241,9 +1482,9 @@ int main() {
     // double t3 = omp_get_wtime();
     // std::cout << t2 - t1 << " " << t3 - t2 << std::endl;
     // return 0;
-    std::vector<float> col_query_cluster_scores(262144 * 32);
-    test_query_cluster_scores.resize(262144 * 32);
-    col_query_cluster_scores.resize(262144 * 32);
+    std::vector<float> col_query_cluster_scores(NUM_CLUSTER * 32);
+    test_query_cluster_scores.resize(NUM_CLUSTER * 32);
+    col_query_cluster_scores.resize(NUM_CLUSTER * 32);
     // hnswlib::fast_dot_product_blas(32, 128, 262144, (&query[0])->data, center_data.data(), test_query_cluster_scores.data());  
     // query_cluster_scores.resize(NUM_QUERY_SETS * 262144 * 32);
     // query_cluster_scores_col.resize(NUM_QUERY_SETS * 262144 * 32);
@@ -1427,22 +1668,32 @@ int main() {
     // }
     // std::cout << hnswlib::L2SqrCluster4Search(&query_center[9], &base[3338], 0) << std::endl;
     // return 0;
-    index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/256clusterSingleIndexTFIDF/";
+    // index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/256clusterSingleIndexTFIDF/";
     // index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/clusterFilterIndex/";
-    // index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/clusterIndex/";
+    index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/clusterIndex20480ef80/";
     // std::vector<int> temp_cluster_id(2761);
+
+    // Solution solution;
+    // if (rebuild) {
+    //     std::vector<float>cluster_distance((long long) NUM_CLUSTER * NUM_CLUSTER);
+    //     hnswlib::fast_dot_product_blas(NUM_CLUSTER, 128, NUM_CLUSTER, center_data.data(), center_data.data(), cluster_distance.data()); 
+    //     solution.build(VECTOR_DIM, base, cluster_set, temp_cluster_id, cluster_distance);
+    //     solution.save(index_file);
+    // } else {
+    //     solution.load(index_file, VECTOR_DIM, base, cluster_set, temp_cluster_id);
+    // }
 
     Solution solution;
     if (rebuild) {
         std::vector<float>cluster_distance((long long) NUM_CLUSTER * NUM_CLUSTER);
         hnswlib::fast_dot_product_blas(NUM_CLUSTER, 128, NUM_CLUSTER, center_data.data(), center_data.data(), cluster_distance.data()); 
-        solution.build(VECTOR_DIM, base, cluster_set, temp_cluster_id, cluster_distance);
-        solution.save(index_file);
+        solution.build_fine_cluster(VECTOR_DIM, base, cluster_set, temp_cluster_id, cluster_distance);
+        solution.save_fine_cluster(index_file);
     } else {
-        solution.load(index_file, VECTOR_DIM, base, cluster_set, temp_cluster_id);
+        solution.load_fine_cluster(index_file, VECTOR_DIM, base, cluster_set, temp_cluster_id);
     }
 
-    for (int tmpef = 200; tmpef <= 2000; tmpef += 100) {
+    for (int tmpef = 250; tmpef <= 5000; tmpef += 100) {
         double total_recall = 0.0;
         double total_cf_recall = 0.0;
         double total_dataset_hnsw_recall = 0.0;
@@ -1479,7 +1730,7 @@ int main() {
                 // std::cout << solution_indices.size() << std::endl;
                 // std::cout << center_data.size() << std::endl;
                 // std::cout << graph_center_data.size() << std::endl;
-                double query_time = solution.search_with_cluster(query[i], test_query_cluster_scores, col_query_cluster_scores, center_data, graph_center_data, K, tmpef, solution_indices);     
+                double query_time = solution.search_with_fine_cluster(query[i], test_query_cluster_scores, col_query_cluster_scores, center_data, graph_center_data, K, tmpef, solution_indices);     
                 total_query_time += query_time;
                 double recall = calculate_recall(solution_indices, bf_ground_truth[i]);
                 total_recall += recall;
