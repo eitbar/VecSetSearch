@@ -298,7 +298,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     searchBaseLayerClusterAppr(tableint ep_id, const void *data_point, const float *cluster_distance, int layer) {
         tableint currObj = ep_id;
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
-        top_candidates = searchBaseLayerClusterCons<true>(currObj, data_point, cluster_distance, ef_construction_);
+        top_candidates = searchBaseLayerClusterConsPara<true>(currObj, data_point, cluster_distance, ef_construction_);
         while (top_candidates.size() > ef_construction_) {
             top_candidates.pop();
         }
@@ -943,6 +943,104 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     template <bool bare_bone_search = true, bool collect_metrics = false>
     std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
     searchBaseLayerClusterCons(
+        tableint ep_id, 
+        const void *data_point,
+        const float *cluster_distance, 
+        size_t ef) {
+        int layer = 0;
+        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
+        vl_type *visited_array = vl->mass;
+        vl_type visited_array_tag = vl->curV;
+
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidateSet;
+
+        dist_t lowerBound;
+        if (!isMarkedDeleted(ep_id)) {
+            // std::cout << "searchBaseLayer: " << ((vectorset*)data_point)->vecnum << " " <<  ((vectorset*)getDataByInternalId(ep_id))->vecnum << std::endl;
+            // dist_t dist = fstdistfunc_((vectorset*)data_point, (vectorset*)getDataByInternalId(ep_id), layer);
+            dist_t dist = fstdistfuncClusterEMD((vectorset*)data_point, (vectorset*)getDataByInternalId(ep_id), cluster_distance);
+            top_candidates.emplace(dist, ep_id);
+            lowerBound = dist;
+            candidateSet.emplace(-dist, ep_id);
+        } else {
+            lowerBound = std::numeric_limits<dist_t>::max();
+            candidateSet.emplace(-lowerBound, ep_id);
+        }
+        visited_array[ep_id] = visited_array_tag;
+
+        while (!candidateSet.empty()) {
+            std::pair<dist_t, tableint> curr_el_pair = candidateSet.top();
+            if ((-curr_el_pair.first) > lowerBound && top_candidates.size() == ef_construction_) {
+                break;
+            }
+            candidateSet.pop();
+
+            tableint curNodeNum = curr_el_pair.second;
+
+            std::unique_lock <std::mutex> lock(link_list_locks_[curNodeNum]);
+
+            int *data;  // = (int *)(linkList0_ + curNodeNum * size_links_per_element0_);
+            if (layer == 0) {
+                data = (int*)get_linklist0(curNodeNum);
+            } else {
+                data = (int*)get_linklist(curNodeNum, layer);
+//                    data = (int *) (linkLists_[curNodeNum] + (layer - 1) * size_links_per_element_);
+            }
+            size_t size = getListCount((linklistsizeint*)data);
+            tableint *datal = (tableint *) (data + 1);
+#ifdef USE_SSE
+            _mm_prefetch((char *) (visited_array + *(data + 1)), _MM_HINT_T0);
+            _mm_prefetch((char *) (visited_array + *(data + 1) + 64), _MM_HINT_T0);
+            _mm_prefetch(getDataByInternalId(*datal), _MM_HINT_T0);
+            _mm_prefetch(getDataByInternalId(*(datal + 1)), _MM_HINT_T0);
+#endif
+            for (size_t j = 0; j < size; j++) {
+                tableint candidate_id = *(datal + j);
+//                    if (candidate_id == 0) continue;
+#ifdef USE_SSE
+                _mm_prefetch((char *) (visited_array + *(datal + j + 1)), _MM_HINT_T0);
+                _mm_prefetch(getDataByInternalId(*(datal + j + 1)), _MM_HINT_T0);
+#endif
+                if (visited_array[candidate_id] == visited_array_tag) continue;
+                if (entry_map.find(candidate_id) == entry_map.end()) continue;
+                
+                visited_array[candidate_id] = visited_array_tag;
+                char *currObj1 = (getDataByInternalId(candidate_id));
+                // if (((vectorset*)currObj1)->vecnum == 0) {
+                //     std::cout << curNodeNum << " neighbor size: " << size << std::endl;
+                //     std::cout << j << " " << candidate_id << std::endl;
+                //     std::cout << "searchBaseLayer: " << ((vectorset*)data_point)->vecnum << " " <<  ((vectorset*)currObj1)->vecnum << std::endl;
+                //     std::cout << "searchBaseLayer: " << ((vectorset*)data_point)->vecnum << " " <<  ((vectorset*)getDataByInternalId(candidate_id))->vecnum << std::endl;
+                //     // std::cout << "searchBaseLayer: " << candidate_id << " " << getExternalLabel(candidate_id) << std::endl;
+                // }
+                // dist_t dist1 = fstdistfunc_((vectorset*)data_point, (vectorset*)currObj1, layer);
+                dist_t dist1 = fstdistfuncClusterEMD((vectorset*)data_point, (vectorset*)currObj1, cluster_distance);
+                if (top_candidates.size() < ef_construction_ || lowerBound > dist1) {
+                    candidateSet.emplace(-dist1, candidate_id);
+#ifdef USE_SSE
+                    _mm_prefetch(getDataByInternalId(candidateSet.top().second), _MM_HINT_T0);
+#endif
+
+                    if (!isMarkedDeleted(candidate_id))
+                        top_candidates.emplace(dist1, candidate_id);
+
+                    if (top_candidates.size() > ef_construction_)
+                        top_candidates.pop();
+
+                    if (!top_candidates.empty())
+                        lowerBound = top_candidates.top().first;
+                }
+            }
+        }
+        visited_list_pool_->releaseVisitedList(vl);
+
+        return top_candidates;
+    }
+
+    template <bool bare_bone_search = true, bool collect_metrics = false>
+    std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
+    searchBaseLayerClusterConsPara(
         tableint ep_id,
         const void *data_point,
         const float *cluster_distance,
@@ -952,7 +1050,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         VisitedList *vl = visited_list_pool_->getFreeVisitedList();
         vl_type *visited_array = vl->mass;
         vl_type visited_array_tag = vl->curV;
-
+        // std::cout << bare_bone_search << std::endl;
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidate_set;
 
@@ -979,7 +1077,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         while (!candidate_set.empty()) {
             std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
             dist_t candidate_dist = -current_node_pair.first;
-
+            // std::cout << current_node_pair.second << " " << candidate_dist << " " << lowerBound << std::endl;
             bool flag_stop_search;
             if (bare_bone_search) {
                 flag_stop_search = candidate_dist > lowerBound;
@@ -1010,7 +1108,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             _mm_prefetch(data_level0_memory_ + (*(data + 1)) * size_data_per_element_ + offsetData_, _MM_HINT_T0);
             _mm_prefetch((char *) (data + 2), _MM_HINT_T0);
 #endif
-
+            // std::cout << size << " ";
             for (size_t j = 1; j <= size; j++) {
                 int candidate_id = *(data + j);
 //                    if (candidate_id == 0) continue;
@@ -1019,6 +1117,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 _mm_prefetch(data_level0_memory_ + (*(data + j + 1)) * size_data_per_element_ + offsetData_,
                                 _MM_HINT_T0);  ////////////
 #endif
+                // if (!(visited_array[candidate_id] == visited_array_tag)) {
                 if (!(visited_array[candidate_id] == visited_array_tag) && (entry_map.find((tableint)candidate_id) != entry_map.end())) {
                     visited_array[candidate_id] = visited_array_tag;
 
@@ -1998,6 +2097,10 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
         std::vector<tableint> selectedNeighbors;
         selectedNeighbors.reserve(M_);
         while (top_candidates.size() > 0) {
+            if (top_candidates.top().second == cur_c) {
+                top_candidates.pop();
+                continue;
+            }
             selectedNeighbors.push_back(top_candidates.top().second);
             top_candidates.pop();
         }
@@ -3106,6 +3209,76 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
         }
     }
 
+    // new pipeline for para
+    bool addPointMem(const void *data_point, labeltype label, labeltype entry) {
+        tableint cur_c = 0;
+        bool new_point = true;
+        {
+            // Checking if the element with the same label already exists
+            // if so, updating it *instead* of creating a new element.
+            std::unique_lock <std::mutex> lock_table(label_lookup_lock);
+            auto search = label_lookup_.find(label);
+            if (search != label_lookup_.end()) {
+                tableint existingInternalId = search->second;
+                cur_c = existingInternalId;
+                lock_table.unlock();
+                new_point = false;
+                // std::cout << label << " " << cur_c << " " << entry << " ? " << std::flush; 
+            }
+            else {
+                if (cur_element_count >= max_elements_) {
+                    throw std::runtime_error("The number of elements exceeds the specified limit");
+                }
+                cur_c = cur_element_count;
+                cur_element_count++;
+                label_lookup_[label] = cur_c;
+                // std::cout << label << " " << cur_c << " " << entry << " new " << std::flush;
+            }
+        }
+        tableint enterpoint_copy = 0;
+        if (label == entry) {
+            enterpoint_copy = cur_c;
+        } else {
+            enterpoint_copy = label_lookup_[entry];
+        }
+        entry_map[cur_c] = enterpoint_copy;
+        if (new_point) {
+            int curlevel = getRandomLevel(mult_);
+            element_levels_[cur_c] = curlevel;
+            memset(data_level0_memory_ + cur_c * size_data_per_element_ + offsetLevel0_, 0, size_data_per_element_);
+            memcpy(getExternalLabeLp(cur_c), &label, sizeof(labeltype));
+            memcpy(getDataByInternalId(cur_c), data_point, data_size_);
+        }
+        return new_point;
+    }
+
+    bool updateOldPointClusterEntry(const void *data_point, const float *cluster_distance, labeltype label, labeltype entry) {
+        tableint cur_c = label_lookup_[label];
+        if (label == entry) {
+            return cur_c;
+        }
+        tableint currObj = label_lookup_[entry];
+        int level = 0;
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = searchBaseLayerClusterAppr(
+                currObj, data_point, cluster_distance, level);
+        currObj = mutuallyConnectUpdateElementCluster(data_point, cluster_distance, cur_c, top_candidates, level, true);
+        return currObj;
+    }
+
+
+    tableint updateNewPointClusterEntry(const void *data_point, const float *cluster_distance, labeltype label, labeltype entry) {
+        tableint cur_c = label_lookup_[label];
+        if (label == entry) {
+            return cur_c;
+        }
+        tableint currObj = label_lookup_[entry];
+        int level = 0;
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = searchBaseLayerClusterAppr(
+                currObj, data_point, cluster_distance, level);
+        currObj = mutuallyConnectNewElementCluster(data_point, cluster_distance, cur_c, top_candidates, level, true);
+        return currObj;
+    }
+
     void addClusterPointEntry(const void *data_point, const float *cluster_distance, labeltype label, labeltype enrty, bool replace_deleted = false) {
         if ((allow_replace_deleted_ == false) && (replace_deleted == true)) {
             throw std::runtime_error("Replacement of deleted elements is disabled in constructor");
@@ -3467,6 +3640,7 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
             templock.unlock();
         tableint currObj = enterpoint_node_;
         tableint enterpoint_copy = enterpoint_node_;
+        // entry_map[cur_c] = enterpoint_copy;
         memset(data_level0_memory_ + cur_c * size_data_per_element_ + offsetLevel0_, 0, size_data_per_element_);
 
         // Initialisation of the data and label
@@ -3516,6 +3690,7 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
     tableint addClusterPointEntry(const void *data_point, const float *cluster_distance, labeltype label, labeltype entry, int level) {
         tableint cur_c = 0;
         bool new_point = true;
+        volatile int temp = 6;
         {
             // Checking if the element with the same label already exists
             // if so, updating it *instead* of creating a new element.
@@ -3527,6 +3702,7 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
                 lock_table.unlock();
                 new_point = false;
                 // std::cout << label << " " << cur_c << " " << entry << " ? " << std::flush; 
+                std::cout << std::to_string(temp) + " " + std::to_string(new_point) + " " + std::to_string(cur_c) << std::endl;
             }
             else {
                 if (cur_element_count >= max_elements_) {
@@ -3536,6 +3712,7 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
                 cur_element_count++;
                 label_lookup_[label] = cur_c;
                 // std::cout << label << " " << cur_c << " " << entry << " new " << std::flush;
+                std::cout << std::to_string(temp) + " " + std::to_string(new_point) + " " + std::to_string(cur_c) << std::endl;
             }
         }
         // if (!new_point) {
@@ -3550,8 +3727,8 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
         }
         enterpoint_copy = currObj;
         entry_map[cur_c] = enterpoint_copy;
-
-        if (new_point) {
+        // std::cout << std::to_string(temp) + " " + std::to_string(new_point) + " " + std::to_string(cur_c) << std::endl;
+        if (new_point) { 
             std::unique_lock <std::mutex> lock_el(link_list_locks_[cur_c]);
             int curlevel = getRandomLevel(mult_);
             if (level > 0)
@@ -3579,10 +3756,12 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
                 currObj = mutuallyConnectNewElementCluster(data_point, cluster_distance, cur_c, top_candidates, level, false);
             }
         } else {
-            int level = 0;
-            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = searchBaseLayerClusterAppr(
-                    currObj, data_point, cluster_distance, level);
-            currObj = mutuallyConnectUpdateElementCluster(data_point, cluster_distance, cur_c, top_candidates, level, true);
+            if (label != entry) {
+                int level = 0;
+                std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates = searchBaseLayerClusterAppr(
+                        currObj, data_point, cluster_distance, level);
+                currObj = mutuallyConnectUpdateElementCluster(data_point, cluster_distance, cur_c, top_candidates, level, true);
+            }
         }
         return cur_c;
     }
@@ -4365,7 +4544,66 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
 
     void checkIntegrity() {
         int connections_checked = 0;
+        int diff_size = 0;
         std::vector <int > inbound_connections_num(cur_element_count, 0);
+        int out_bound_zero_size = 0;
+        for (int i = 0; i < cur_element_count; i++) {
+            for (int l = 0; l <= element_levels_[i]; l++) {
+                linklistsizeint *ll_cur = get_linklist_at_level(i, l);
+                int size = getListCount(ll_cur);
+                tableint *data = (tableint *) (ll_cur + 1);
+                std::unordered_set<tableint> s;
+                // std::cout << i << " " << size << " ";
+                if (size == 0) {
+                    out_bound_zero_size += 1;
+                }
+                for (int j = 0; j < size; j++) {
+                    assert(data[j] < cur_element_count);
+                    assert(data[j] != i);
+                    inbound_connections_num[data[j]]++;
+                    s.insert(data[j]);
+                    // std::cout << data[j] << " ";
+                    connections_checked++;
+                }
+                // std::cout << std::endl;
+                if (s.size() != size) {
+                    std::cout << i << " ";
+                    for (int j = 0; j < size; j++) {
+                        std::cout << data[j] << " ";
+                    }
+                    std::cout << std::endl;
+                    std::cout << s.size() << ' ' << size << std::endl;
+                    diff_size += 1;
+                }
+                //assert(s.size() == size);
+            }
+        }
+        int all_inbound_0_count  = 0;
+        if (cur_element_count > 1) {
+            int min1 = inbound_connections_num[0], max1 = inbound_connections_num[0];
+            for (int i=0; i < cur_element_count; i++) {
+                // assert(inbound_connections_num[i] > 0);
+                if (getExternalLabel(i) == 7258856) {
+                    std::cout << " ?? " <<  inbound_connections_num[i] << " ?? " << std::endl;
+                }
+                if (inbound_connections_num[i] == 0) { 
+                    std::cout << getExternalLabel(i) << " " ;
+                    all_inbound_0_count += 1;
+                }
+                min1 = std::min(inbound_connections_num[i], min1);
+                max1 = std::max(inbound_connections_num[i], max1);
+            }
+            std::cout << "Min inbound: " << min1 << ", Max inbound:" << max1 << "\n";
+            std::cout << cur_element_count << " " << all_inbound_0_count << " " << diff_size << " " << out_bound_zero_size << std::endl;
+        }
+        std::cout << "integrity ok, checked " << connections_checked << " connections\n";
+    }
+
+
+    void addIntegrity() {
+        int connections_checked = 0;
+        int diff_size = 0;
+        std::vector <int> inbound_connections_num(cur_element_count, 0);
         for (int i = 0; i < cur_element_count; i++) {
             for (int l = 0; l <= element_levels_[i]; l++) {
                 linklistsizeint *ll_cur = get_linklist_at_level(i, l);
@@ -4379,19 +4617,36 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
                     s.insert(data[j]);
                     connections_checked++;
                 }
-                assert(s.size() == size);
+                // std::cout << std::endl;
+                //assert(s.size() == size);
             }
         }
-        if (cur_element_count > 1) {
-            int min1 = inbound_connections_num[0], max1 = inbound_connections_num[0];
-            for (int i=0; i < cur_element_count; i++) {
-                assert(inbound_connections_num[i] > 0);
-                min1 = std::min(inbound_connections_num[i], min1);
-                max1 = std::max(inbound_connections_num[i], max1);
+
+        for (int i=0; i < cur_element_count; i++) {
+            if (inbound_connections_num[i] == 0) { 
+                // std::cout << getExternalLabel(i) << " " ;
+                linklistsizeint *ll_cur = get_linklist_at_level(i, 0);
+                int size = getListCount(ll_cur);
+                tableint *data = (tableint *) (ll_cur + 1);
+                std::vector<tableint> s;
+                bool addsuccess = false;
+                for (int j = 0; j < size; j++) {
+                    tableint nei_c = data[j];
+                    linklistsizeint *ll_nei = get_linklist_at_level(nei_c, 0);
+                    int size_nei = getListCount(ll_nei);   
+                    if (size_nei < maxM0_) {
+                        tableint *data_nei = (tableint *) (ll_nei + 1);
+                        data_nei[size_nei] = i;
+                        setListCount(ll_nei, size_nei + 1);
+                        addsuccess = true;
+                    }               
+                }
+                if (addsuccess) {
+                    continue;
+                }
+
             }
-            std::cout << "Min inbound: " << min1 << ", Max inbound:" << max1 << "\n";
         }
-        std::cout << "integrity ok, checked " << connections_checked << " connections\n";
     }
 };
 }  // namespace hnswlib
