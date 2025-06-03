@@ -988,14 +988,17 @@ static float L2SqrVecClusterEMD(const vectorset* q, const vectorset* p, const fl
     size_t n = q->vecnum;
     size_t m = p->vecnum ;
     std::vector<double> dist_flat(n * m);
+    // std::cout << n << " " << m << std::endl;
 
     // #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < n; ++i) {
         long long icode = (long long)q->codes[i] * 262144;
+        // std::cout << i << " " << icode << " "  << std::flush;
         for (size_t j = 0; j < m; ++j) {
             dist_flat[i * m + j] = (double)1.0f - cluster_dis[icode + p->codes[j]];
         }
     }
+    // std::cout << dist_flat[0] << " " << dist_flat[n * m - 1] << std::endl;
 
     std::vector<double> a_hist(n, 1.0 / n);
     std::vector<double> b_hist(m, 1.0 / m);

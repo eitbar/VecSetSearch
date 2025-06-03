@@ -17,17 +17,17 @@
 constexpr int VECTOR_DIM = 128;
 constexpr int BASE_VECTOR_SET_MIN = 36;
 constexpr int BASE_VECTOR_SET_MAX = 48;
-constexpr int MSMACRO_TEST_NUMBER = 354;
-constexpr int NUM_BASE_SETS = 25000 * MSMACRO_TEST_NUMBER;
+constexpr int MSMACRO_TEST_NUMBER = 98;
+constexpr int NUM_BASE_SETS = 2428853;
 constexpr long long NUM_BASE_VECTOR_LOTTE = 339419977;
 constexpr int NUM_BASE_SETS_LOTTE = 2428853;
 constexpr int NUM_QUERT_LOTTE = 2930;
 constexpr int LOTTE_TEST_NUMBER = 98;
-int NUM_QUERY_SETS = 6980;
+int NUM_QUERY_SETS = 2930;
 constexpr int QUERY_VECTOR_COUNT = 32;
-constexpr int K = 10;
-constexpr int rerankK = 64;
-constexpr int minef = 100;
+constexpr int K = 100;
+constexpr int rerankK = 256;
+constexpr int minef = 300;
 constexpr int maxef = 2000;
 constexpr int efinterval = 100;
 constexpr int NUM_CLUSTER = 262144;
@@ -319,7 +319,7 @@ public:
         alg_hnsw_list[0] = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 24, 80);
         for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
             int i = temp_cluster_id[tmpi];
-            if (i != 65583 && i != 4705 && i != 1986 && i != 5870 && i != 56083 && i!= 33326) {
+            if (i != 65583 && i != 4705 && i != 1986 && i != 5870 && i != 56083 && i!= 33326 && i != 3) {
                 double cur_time = omp_get_wtime();
                 std::cout << "cluster build begin: " + std::to_string(i) + " " + std::to_string(cluster_set[i].size()) << std::endl;
                 alg_hnsw_list[0]->entry_map.clear();
@@ -330,9 +330,10 @@ public:
                 for (int j = 1; j < cluster_set[i].size(); j++) {
                     if (j % 1000 == 0) {
                         // #pragma omp critical
-                        std::cout << std::to_string(i) + " " + std::to_string(j) << std::endl;
+                        std::cout << std::to_string(i) + " " + std::to_string(j) + " " + std::to_string(cluster_set[i][j]) << std::endl;
                     }
                     // std::cout << j << " " << std::flush; 
+                    // std::cout << std::to_string(i) + " " + std::to_string(j) + " " + std::to_string(cluster_set[i][j]) << std::endl;
                     alg_hnsw_list[0]->addClusterPointEntry(&base_vectors[cluster_set[i][j]], cluster_distance.data(), cluster_set[i][j], cluster_set[i][0]);
                     // std::cout << j << " " << std::endl; 
                 }
@@ -348,9 +349,9 @@ public:
                 for (int j = 1; j < cluster_set[i].size(); j++) {
                     if (j % 1000 == 0) {
                         // #pragma omp critical
-                        std::cout << std::to_string(i) + " " + std::to_string(j) << std::endl;
+                        std::cout << std::to_string(i) + " " + std::to_string(j) << " " << std::to_string(cluster_set[i][j]) << std::endl;
                     }
-                    // std::cout << j << " " << std::flush; 
+                    // std::cout << std::to_string(i) + " " + std::to_string(j) << " " << std::to_string(cluster_set[i][j]) << std::flush; 
                     alg_hnsw_list[0]->addClusterPointEntry(&base_vectors[cluster_set[i][j]], cluster_distance.data(), cluster_set[i][j], cluster_set[i][0]);
                     // std::cout << j << " " << std::endl; 
                 }
@@ -1332,8 +1333,8 @@ void load_from_lotte(std::vector<float>& base_data, std::vector<vectorset>& base
     cnpy::NpyArray qembs_npy = cnpy::npy_load(qembfile_name);
 
     float* raw_qembs_data = qembs_npy.data<float>();
-    size_t num_qembs_elements = NUM_QUERY_SETS * qembs_npy.shape[1] * qembs_npy.shape[2];
-    size_t q_num = NUM_QUERY_SETS;
+    size_t num_qembs_elements = NUM_QUERT_LOTTE * qembs_npy.shape[1] * qembs_npy.shape[2];
+    size_t q_num = NUM_QUERT_LOTTE;
 
     int q_offset = 0;
     
@@ -1380,7 +1381,7 @@ void load_from_lotte(std::vector<float>& base_data, std::vector<vectorset>& base
             cluster_set[lineid].push_back(num1);
         }
         if (lineid % 100 == 0) {
-            std::cout << lineid << " " << cluster_set[lineid].size() << std::endl;
+            std::cout << lineid << " " << cluster_set[lineid][cluster_set[lineid].size()-1] << std::endl;
         }
         lineid++;
     }
@@ -1762,6 +1763,27 @@ double calculate_recall_for_msmacro(const std::vector<std::pair<int, float>>& so
     return recall;
 }
 
+double calculate_hitrate_for_msmacro(const std::vector<std::pair<int, float>>& solution_indices,
+                        const std::vector<int>& ground_truth_indices) {
+    std::unordered_set<int> solution_set;
+    std::unordered_set<int> ground_truth_set;
+    for (const auto& pair : solution_indices) {
+        solution_set.insert(pair.first);
+    }
+    for (const auto& pid : ground_truth_indices) {
+        ground_truth_set.insert(pid);
+    }
+    int intersection_count = 0;
+    for (const int& index : solution_set) {
+        if (ground_truth_set.find(index) != ground_truth_set.end()) {
+            intersection_count++;
+        }
+    }
+    // double hitrate = static_cast<double>(intersection_count) / ground_truth_set.size();
+    double hitrate = static_cast<double>(intersection_count > 0);
+    return hitrate;
+}
+
 double calculate_mrr_for_msmacro(const std::vector<std::pair<int, float>>& solution_indices,
     const std::vector<int>& ground_truth_indices) {
     std::unordered_set<int> ground_truth_set;
@@ -1783,19 +1805,10 @@ double calculate_recall(const std::vector<std::pair<int, float>>& solution_indic
                         const std::vector<std::pair<int, float>>& ground_truth_indices) {
     std::unordered_set<int> solution_set;
     std::unordered_set<int> ground_truth_set;
-    // for (int j = 0; j < K; j ++) {
-    //     std::cout << ground_truth_indices[j].first << " " << ground_truth_indices[j].second << " ";
-    // }
-    // std::cout << ground_truth_indices.size() << std::endl;
     
     for (const auto& pair : solution_indices) {
         solution_set.insert(pair.first);
-        // std::cout << pair.first << " ";
-        // if (solution_set.size() >= K) {
-        //     break;
-        // }
     }
-    // std::cout << std::endl;
 
     for (const auto& pair : ground_truth_indices) {
         ground_truth_set.insert(pair.first);
@@ -1805,22 +1818,13 @@ double calculate_recall(const std::vector<std::pair<int, float>>& solution_indic
         }
     }
 
-    // for (int j = 0; j < K; j ++) {
-    //     ground_truth_set.insert(ground_truth_indices[j].first);
-    //     // std::cout << ground_truth_indices[j].first << " ";
-    //     if (ground_truth_set.size() >= K) {
-    //         break;
-    //     }
-    // }
-    // std::cout << std::endl;
     int intersection_count = 0;
     for (const int& index : solution_set) {
         if (ground_truth_set.find(index) != ground_truth_set.end()) {
             intersection_count++;
         }
     }
-    // std::cout << intersection_count << std::endl;
-    // std::cout << ground_truth_set.size() << std::endl;
+
     double recall = static_cast<double>(intersection_count) / ground_truth_set.size();
     return recall;
 }
@@ -1875,10 +1879,10 @@ int main() {
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth_cf(
         6980, std::vector<std::pair<int, float>>(4000, {0, 0.0f})
     );
-    int dataset = 0;
+    int dataset = 1;
     bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = false;
+    bool rebuild = true;
     bool test_graph = false;
     bool reconnect = false;
     int dist_metric = 1;
@@ -1916,7 +1920,6 @@ int main() {
     for (int i = 0;i < NUM_GRAPH_CLUSTER; i++) {
         temp_cluster_id[i] = i;
     }
-    // temp_cluster_id = {0};
     std::cout << temp_cluster_id.size() << std::endl;
 
     if (test_graph) {
@@ -2012,251 +2015,67 @@ int main() {
 
         return 0;
     }
-    // solution.alg_hnsw_list[0]->addIntegrity();
-    // solution.alg_hnsw_list[i]->checkIntegrity();
 
-    // std::vector<int> temp_cluster_id = {1, 2, 4, 5, 6, 10, 12, 13, 14, 15, 19, 20, 28, 34, 38, 39, 40, 41, 45, 52, 53, 54, 55, 61, 63, 66, 67, 68, 72, 77, 80, 84, 88, 89, 91, 99, 100, 110, 114, 117, 118, 121, 126, 132, 134, 135, 140, 142, 146, 153, 158, 159, 161, 164, 165, 167, 171, 172, 176, 181, 184, 185, 192, 200, 208, 210, 213, 214, 217, 218, 219, 225, 227, 230, 231, 232, 233, 235, 239, 242, 244, 247, 249, 252, 255};
-    // std::vector<int> temp_cluster_id = {182};
-    // std::vector<int> query182 = {0, 11, 22, 23, 40, 42, 53, 60, 70, 78, 82, 83};
 
-    if (dataset == 0) {
-        if (dist_metric == 0) {
-            if (test_subset) {
-                ground_truth_file = "../examples/caches/95k_ground_truth_bi_summax_l2_top100.txt";
-                index_file = "../examples/localIndex/95k_bi_summax_l2.bin";
-            } else {
-                ground_truth_file = "../examples/caches/ground_truth_bi_summax_l2_top100.txt";
-                index_file = "../examples/localIndex/8m_bi_summax_l2.bin";
-            }
-        } else if (dist_metric == 1) {
-            if (test_subset) {
-                ground_truth_file = "../examples/caches/95k_ground_truth_single_summax_l2_top100.txt";
-                index_file = "../examples/localIndex/95k_single_summax_l2.bin";
-            } else {
-                ground_truth_file = "../examples/caches/ground_truth_cluster_ip_top4k.txt";
-                index_file = "../examples/localIndex/8m_emd_l2.bin";
-            }
-        } else {
-            if (test_subset) {
-                ground_truth_file = "../examples/caches/95k_ground_truth_new_summax_l2_top100.txt";
-                index_file = "../examples/localIndex/95k_new_summax_l2.bin";
-            } else {
-                ground_truth_file = "../examples/caches/ground_truth_new_summax_l2_top100.txt";
-                index_file = "../examples/localIndex/8m_new_summax_l2.bin";
-            }
-        }
-    }
-    else if (dataset == 1) {
-        ground_truth_file = "../examples/caches/ground_truth_new_summax_l2_top100.txt";
-        index_file = "../examples/localIndex/lotte_emd_l2.bin";
-    }
 
     // Solution testsolution;
     // testsolution.load(index_file, VECTOR_DIM, base);
 
     if (dataset == 0) {
-        if (test_subset) {
-            // test on collected 95k msmacro subset
-            base_data.resize((long long) 96000 * VECTOR_DIM * 80);
-            query_data.resize((long long) NUM_QUERY_SETS * VECTOR_DIM * 32);
-            subset_test_msmarco(base_data, base, query_data, query, qrels);     
-        } else {
-            // test on all msmacro dataset
-            base_data.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 128 * 80);
-            query_data.resize((long long) NUM_QUERY_SETS * 128 * 32 + 1);
-            base_data_codes.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 80);
-            center_data.resize((long long) 262144 * 128);
-            graph_center_data.resize((long long) NUM_GRAPH_CLUSTER * 128);
-            // cluster_set.resize(NUM_GRAPH_CLUSTER);
-            cluster_set.resize(NUM_GRAPH_CLUSTER);
-            // std::cout<< (long long) 25000 * MSMACRO_TEST_NUMBER * 80 << std::endl;
-            load_from_msmarco(base_data, base, query_data, query, base_data_codes, center_data, graph_center_data, cluster_set, MSMACRO_TEST_NUMBER, qrels);
-        }
+        ground_truth_file = "../examples/caches/ground_truth_cluster_ip_top4k.txt";
+        // test on all msmacro dataset
+        base_data.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 128 * 80);
+        query_data.resize((long long) NUM_QUERY_SETS * 128 * 32 + 1);
+        base_data_codes.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 80);
+        center_data.resize((long long) 262144 * 128);
+        graph_center_data.resize((long long) NUM_GRAPH_CLUSTER * 128);
+        // cluster_set.resize(NUM_GRAPH_CLUSTER);
+        cluster_set.resize(NUM_GRAPH_CLUSTER);
+        // std::cout<< (long long) 25000 * MSMACRO_TEST_NUMBER * 80 << std::endl;
+        load_from_msmarco(base_data, base, query_data, query, base_data_codes, center_data, graph_center_data, cluster_set, MSMACRO_TEST_NUMBER, qrels);
     }
     else if (dataset == 1) {
         base_data.resize((long long) NUM_BASE_VECTOR_LOTTE * 128);
         query_data.resize((long long) NUM_QUERT_LOTTE * 128 * 32);
-        load_from_lotte_before(base_data, base, query_data, query, LOTTE_TEST_NUMBER, qrels);
+        base_data_codes.resize((long long) NUM_BASE_VECTOR_LOTTE);
+        center_data.resize((long long) 262144 * 128);
+        graph_center_data.resize((long long) NUM_GRAPH_CLUSTER * 128);
+        cluster_set.resize(NUM_GRAPH_CLUSTER);
+        load_from_lotte(base_data, base, query_data, query, base_data_codes, center_data, graph_center_data, cluster_set, MSMACRO_TEST_NUMBER, qrels);
+    
     }
-    // std::vector<float> C(200 * 200);
-    // double t0 = omp_get_wtime();
-    // for (int i = 0; i < 100; i++) {
-    //     float d = hnswlib::L2SqrVecBlasCF(&query[i], &base[i], C.data(), 0);
-    //     // if (i < 10) std::cout << d << std::endl;
-    // }
-    // query_cluster_scores.resize(NUM_QUERY_SETS * 262144 * 32);
-    // double t1 = omp_get_wtime();
-    // hnswlib::L2SqrVecGetDistance((&query[0])->data, center_data.data(), query_cluster_scores.data(), 32, 262144, 128);    
-    // double t2 = omp_get_wtime();
-    // hnswlib::fast_dot_product_blas(32, 262144, 128, (&query[0])->data, center_data.data(), query_cluster_scores.data());    
-    // double t3 = omp_get_wtime();
-    // std::cout << t2 - t1 << " " << t3 - t2 << std::endl;
-    // return 0;
+
     std::vector<float> col_query_cluster_scores(NUM_CLUSTER * 32);
     test_query_cluster_scores.resize(NUM_CLUSTER * 32);
     col_query_cluster_scores.resize(NUM_CLUSTER * 32);
-    // hnswlib::fast_dot_product_blas(32, 128, 262144, (&query[0])->data, center_data.data(), test_query_cluster_scores.data());  
-    // query_cluster_scores.resize(NUM_QUERY_SETS * 262144 * 32);
-    // query_cluster_scores_col.resize(NUM_QUERY_SETS * 262144 * 32);
-    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-    //     for (int j = 0; j < 32; j++) {
-    //         for (int k = 0; k < 262144; k++) {
-    //             float tt  = hnswlib::InnerProductSIMD16ExtSSE((&query[i])->data + j * 128, &center_data[k * 128], &(&query[i])->dim);
-    //             // if (i == 0 && (k < 100 || k > 262100)) {
-    //             //     std::cout << i << " " << j <<  " " << k << " " << tt << std::endl;
-    //             //     std::cout << test_query_cluster_scores[j * 262144 + k] << std::endl;
-    //             // }
-    //             query_cluster_scores[i * 262144 * 32 + j * 262144 + k] =  tt;
-    //             query_cluster_scores_col[i * 262144 * 32 + k * 32 + j] = tt;
-    //         }
-    //     }
-    //     query_center.push_back(vectorset(query_cluster_scores.data() + i * 262144 * 32, nullptr, 262144, 32));
-    //     query_center_col.push_back(vectorset(query_cluster_scores_col.data() + i * 262144 * 32, nullptr, 262144, 32));
-    // }
-
-    // std::random_device rd; 
-    // std::mt19937 gen_int(rd());  // 使用 Mersenne Twister 伪随机数生成器
-    // std::uniform_int_distribution<int> dist_int(0, 25000);  // 设定范围 0 ~ 250000
-
-    // // 生成 20000 个随机数
-    // std::vector<int> random_numbers(20000);
-
-
-    // std::cout << "begin test" << std::endl;
-
-    // double all_time_original_cf = 0.0f;
-    // double all_time_blas_cf = 0.0f;
-    // double all_time_eigen_cf = 0.0f;
-    // std::vector<std::vector<float>> res1(100);
-    // std::vector<std::vector<float>> res2(100);
-    // std::vector<std::vector<float>> res3(100);
-    // std::vector<float> C(32 * 180);
-    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-    //     for (int j = 0; j < 20000; j ++) {
-    //         int num = dist_int(gen_int);
-    //         random_numbers[j] = num;
-    //     } 
-    //     double t1_original_cf = omp_get_wtime();
-    //     res1[i].resize(20000);
-    //     for (int j = 0; j < 20000; j++) {
-    //         float d1 = hnswlib::L2SqrVecCF(&query[i], &base[j], 0);
-    //         res1[i][j] = d1;
-    //     }
-    //     // continue;
-    //     double t2_original_cf = omp_get_wtime();
-    //     double t1_blas_cf = omp_get_wtime();
-    //     res2[i].resize(20000);
-    //     for (int j = 0; j < 20000; j++) {
-    //         float d = hnswlib::L2SqrVecBlasCF(&query[i], &base[j], C.data(), 0);
-    //         res2[i][j] = (d);
-    //     }
-    //     double t2_blas_cf = omp_get_wtime();
-    //     std::vector<float> tmpq(32*128);
-    //     std::vector<float> tmpd(180*128);
-    //     for (int j = 0; j < 32; j++) {
-    //         for (int k = 0; k < 128; k++) {
-    //             tmpq[k * 32 + j] = *((&query[i])->data + j * 128 + k);
-    //         }
-    //     }
-    //     double t1_eigen_cf = omp_get_wtime();
-    //     res3[i].resize(20000);
-    //     for (int j = 0; j < 20000; j++) {
-    //         // for (int t = 0; t < (&base[j])->vecnum; t++) {
-    //         //     for (int k = 0; k < 128; k++) {
-    //         //         tmpd[k * 32 + t] = *((&base[j])->data + t * 128 + k);
-    //         //     }
-    //         // }
-    //         // float d = hnswlib::L2SqrVecEigenCF(&query[i], &base[j], 0);
-    //         float d = hnswlib::max_inner_product_sum(tmpq.data(), (&base[j])->data, 32, (&base[j])->vecnum, 128) / 32;
-    //         res3[i][j] = (d);
-    //     }
-    //     double t2_eigen_cf = omp_get_wtime();
-    //     std::cout << i << ": original 2w:  " << t2_original_cf - t1_original_cf << " blas 2w: " << t2_blas_cf - t1_blas_cf << " eigen 2w: " << t2_eigen_cf - t1_eigen_cf << std::endl;
-    //     all_time_original_cf += t2_original_cf - t1_original_cf;
-    //     all_time_blas_cf += t2_blas_cf - t1_blas_cf;
-    //     all_time_eigen_cf += t2_eigen_cf - t1_eigen_cf;
-    // }
-    // std::cout << res1.size() << std::endl;
-    // std::cout << res2.size() << std::endl;
-    // std::cout << res3.size() << std::endl;
-    // // double t2 = omp_get_wtime();
-    // std::cout << all_time_original_cf / NUM_QUERY_SETS << std::endl;
-    // std::cout << all_time_blas_cf / NUM_QUERY_SETS << std::endl;
-    // std::cout << all_time_eigen_cf / NUM_QUERY_SETS << std::endl;
-    // return 0;
-
-    // std::cout << "begin test" << std::endl;
-
-    // double all_time_random = 0.0f;
-    // double all_time_sequence = 0.0f;
-    // // std::vector<float> res;
-    // std::vector<float> test2_query_cluster_scores(262144 * 32);
-    // std::vector<std::vector<float>> res1(100);
-    // std::vector<std::vector<float>> res2(100);
-    // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-    //     for (int j = 0; j < 20000; j ++) {
-    //         int num = dist_int(gen_int);
-    //         random_numbers[j] = num;
-    //     } 
-    //     hnswlib::fast_dot_product_blas(262144, 128, 32, center_data.data(), (&query[i])->data, test_query_cluster_scores.data());  
-    //     vectorset query_cluster = vectorset(test_query_cluster_scores.data(), nullptr, 262144, 32);
-    //     hnswlib::fast_dot_product_blas(32, 128, 262144, (&query[i])->data, center_data.data(), test2_query_cluster_scores.data());  
-    //     vectorset query_cluster2 = vectorset(test2_query_cluster_scores.data(), nullptr, 262144, 32);
-    //     double t1_sequence = omp_get_wtime();
-    //     res1[i].resize(20000);
-    //     for (int j = 0; j < 20000; j++) {
-    //         // float d0 = hnswlib::L2SqrCluster4Search(&query_center[i], &base[j], 0);
-    //         float d1 = hnswlib::L2SqrCluster4Search(&query_cluster, &base[j], 0);
-    //         // float d2 = hnswlib::L2SqrClusterAVX4Search(&query_cluster2, &base[j], 0);
-    //         // std::cout << std::endl;
-    //         // std::cout << d1 << " " << d2 << std::endl;
-    //         res1[i][j] = d1;
-    //     }
-    //     // continue;
-    //     double t2_sequence = omp_get_wtime();
-    //     double t1_random = omp_get_wtime();
-    //     res2[i].resize(20000);
-    //     for (int j = 0; j < 20000; j++) {
-    //         float d = hnswlib::L2SqrClusterAVX4Search(&query_cluster2, &base[j], 0);
-    //         res2[i][j] = (d);
-    //     }
-    //     double t2_random = omp_get_wtime();
-    //     std::cout << i << ": sequence 2w:  " << t2_sequence - t1_sequence << " random 2w: " << t2_random - t1_random<< std::endl;
-    //     all_time_random += t2_random - t1_random;
-    //     all_time_sequence += t2_sequence - t1_sequence;
-    // }
-    // std::cout << res1.size() << std::endl;
-    // std::cout << res2.size() << std::endl;
-    // // double t2 = omp_get_wtime();
-    // std::cout << all_time_sequence / NUM_QUERY_SETS << std::endl;
-    // std::cout << all_time_random / NUM_QUERY_SETS << std::endl;
-    // return 0;
-
-    if (!load_bf_from_cache) {
-        GroundTruth ground_truth;
-        ground_truth.build(VECTOR_DIM, base);
-        std::cout<< "Generate BF Groundtruth" <<std::endl;
-        #pragma omp parallel for schedule(dynamic)
-        for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-            // std::vector<std::pair<int, float>> ground_truth_indices;
-            // std::cout << i << std::endl;
-            ground_truth.searchCluster(query[i], query_center[i], 4000, bf_ground_truth[i]);
-        }
-        std::cout<< "Generate BF Groundtruth Finish!" <<std::endl;
-        std::ofstream outFile(ground_truth_file);
-        for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-            for (int j = 0; j < 4000; j++) {
-                outFile << bf_ground_truth[i][j].first << " " << bf_ground_truth[i][j].second << " ";
+    bool test_ground_truth = false;
+    if (test_ground_truth) {
+        if (!load_bf_from_cache) {
+            GroundTruth ground_truth;
+            ground_truth.build(VECTOR_DIM, base);
+            std::cout<< "Generate BF Groundtruth" <<std::endl;
+            #pragma omp parallel for schedule(dynamic)
+            for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+                // std::vector<std::pair<int, float>> ground_truth_indices;
+                // std::cout << i << std::endl;
+                ground_truth.searchCluster(query[i], query_center[i], 4000, bf_ground_truth[i]);
             }
-            outFile << "\n";
-            outFile.flush();
+            std::cout<< "Generate BF Groundtruth Finish!" <<std::endl;
+            std::ofstream outFile(ground_truth_file);
+            for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+                for (int j = 0; j < 4000; j++) {
+                    outFile << bf_ground_truth[i][j].first << " " << bf_ground_truth[i][j].second << " ";
+                }
+                outFile << "\n";
+                outFile.flush();
+            }
+            std::cout<< "write file BF Groundtruth Finish!" <<std::endl;
         }
-        std::cout<< "write file BF Groundtruth Finish!" <<std::endl;
-    }
-    else {
-        readGroundTruth(ground_truth_file, bf_ground_truth);
-        readGroundTruth(ground_truth_file, bf_ground_truth_cf);
-        std::cout<< "load BF Groundtruth Finish!" <<std::endl;
+        else {
+            readGroundTruth(ground_truth_file, bf_ground_truth);
+            readGroundTruth(ground_truth_file, bf_ground_truth_cf);
+            std::cout<< "load BF Groundtruth Finish!" <<std::endl;
+        }
     }
     // for (int i = 0; i < 100; i++) {
     //     std::cout << i << " " << hnswlib::L2SqrVecCF(&query[i], &base[i], 0) << std::endl;
@@ -2280,7 +2099,7 @@ int main() {
     // return 0;
     // index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/256clusterSingleIndexTFIDF/";
     // index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/clusterFilterIndex/";
-    index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/clusterIndex40960_all/";
+    index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/lotteIndex40960_all/";
     // std::vector<int> temp_cluster_id(2761);
 
     // Solution solution;
@@ -2303,64 +2122,6 @@ int main() {
     } else {
         solution.load_fine_cluster(index_file, VECTOR_DIM, base, cluster_set, temp_cluster_id);
         solution.repair_fine_graph_structure_detail(cluster_set, temp_cluster_id);
-        // solution.alg_hnsw_list[0]->checkIntegrity();
-        // solution.alg_hnsw_list[0]->addIntegrity();
-
-        // int add_success = 0;
-        // for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-        //     std::vector<hnswlib::labeltype> entries = solution.get_topk_cluster(query[i], test_query_cluster_scores, graph_center_data, 50);
-        //     for (int j =0; j < qrels[i].size(); j++) {
-        //         int label = qrels[i][j];
-        //         bool addsuccess = false;
-        //         for (hnswlib::labeltype entry: entries) {
-        //             if (solution.alg_hnsw_list[0]->canAddEdge(entry)) {
-        //                 solution.alg_hnsw_list[0]->mutuallyConnectTwoElement(entry, label);
-        //                 addsuccess = true;
-        //                 std::cout << i << " " << j << " " << entry << " " << label << std::endl;
-        //                 break;
-        //             }
-        //         }
-        //         if (addsuccess) {
-        //             add_success += 1;
-        //         }
-        //     }
-        //     std::cout << std::endl;
-        // }
-        // std::cout << add_success << std::endl;
-
-
-        // int add_success = 0;
-        // for (int i = 0; i < cluster_set.size(); ++i) {
-        //     // std::vector<hnswlib::labeltype> entries = solution.get_topk_cluster(query[i], test_query_cluster_scores, graph_center_data, 50);
-        //     int l = 0;
-        //     int r = cluster_set[i].size() - 1;
-        //     while(l < r) 
-        //     {
-        //         if (cluster_set[i][r] < 7000000 || cluster_set[i][r] > 8000000) {
-        //             break;
-        //         }
-        //         bool lcan = solution.alg_hnsw_list[0]->canAddEdge(cluster_set[i][l]);
-        //         bool rcan = solution.alg_hnsw_list[0]->canAddEdge(cluster_set[i][r]);
-        //         if (lcan && rcan) {
-        //             solution.alg_hnsw_list[0]->mutuallyConnectTwoElement(cluster_set[i][l], cluster_set[i][r]);
-        //             solution.alg_hnsw_list[0]->mutuallyConnectTwoElement(cluster_set[i][r], cluster_set[i][l]);
-        //             add_success += 1;
-        //             r -= 1;
-        //         } else {
-        //             if (!lcan) {
-        //                 l += 1;
-        //             }
-        //             if (!rcan) {
-        //                 r -= 1;
-        //             }
-        //         }
-        //     }
-        //     // std::cout << i << std::endl;
-        //     if (i % 1000 == 0) {
-        //         std::cout << i << " ";
-        //     }
-        // }
-        // std::cout << add_success << std::endl;
         solution.alg_hnsw_list[0]->checkIntegrity();
     }
 
@@ -2376,60 +2137,47 @@ int main() {
         double total_enrty_recall_50 = 0.0;
         double total_enrty_recall_100 = 0.0;
         double total_dataset_hnsw_mrr = 0.0;
+        double total_dataset_hitrate = 0.0;
 
         l2_sqr_call_count.store(0);
         std::cout<<"Processing Queries HNSW"<<std::endl;
-        // #pragma omp parallel for schedule(dynamic)
-        // for (int tmpi = 0; tmpi < query182.size(); tmpi ++) {
-        //     int i = query182[tmpi];
-        //     std::cout << i << std::endl;
-        for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-            // std::cout << i << std::endl;
-            // if (i != 96 && i!= 57) {
-            //     continue;
-            // }
-            double wcf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth[i], qrels[i]);
-            // std::cout << i << std::endl;
-            total_wcf_bf_recall += wcf_bf_recall;
-            double cf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth_cf[i], qrels[i]);
-            // std::cout << i << std::endl;
-            total_cf_bf_recall += cf_bf_recall;
+
+        for (int i = 0; i < NUM_QUERT_LOTTE; ++i) {
             std::vector<std::pair<int, float>> solution_indices;
-            // std::vector<hnswlib::labeltype> entry_points;
-            // entry_points.resize(multi_entries_num);
-            // std::cout << i << std::endl;
-            try {
-                // double query_time = solution.search_with_cluster(query[i], test_query_cluster_scores, center_data, K, tmpef, solution_indices);
-                // std::cout << query[i].dim << " " <<  *(query[i].data) << " " << *(query[i].data + 32 * 128 - 1) << std::endl;
-                // std::cout << test_query_cluster_scores[262144 * 32 - 1] << " " << col_query_cluster_scores[262144 * 32 - 1] << std::endl;
-                // std::cout << solution_indices.size() << std::endl;
-                // std::cout << center_data.size() << std::endl;
-                // std::cout << graph_center_data.size() << std::endl;
-                double query_time = solution.search_with_fine_cluster(query[i], test_query_cluster_scores, col_query_cluster_scores, center_data, graph_center_data, K, tmpef, solution_indices);     
-                total_query_time += query_time;
+            double query_time = solution.search_with_fine_cluster(query[i], test_query_cluster_scores, col_query_cluster_scores, center_data, graph_center_data, K, tmpef, solution_indices);     
+            total_query_time += query_time;
+            double dataset_hnsw_recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
+            double dataset_hnsw_mrr = calculate_mrr_for_msmacro(solution_indices, qrels[i]);
+            double dataset_hitrate = calculate_hitrate_for_msmacro(solution_indices, qrels[i]);
+            total_dataset_hnsw_recall += dataset_hnsw_recall;
+            total_dataset_hnsw_mrr += dataset_hnsw_mrr;
+            total_dataset_hitrate += dataset_hitrate;
+            if (test_ground_truth) {
                 double recall = calculate_recall(solution_indices, bf_ground_truth[i]);
                 total_recall += recall;
                 double cf_recall = calculate_recall(solution_indices, bf_ground_truth_cf[i]);
                 total_cf_recall += cf_recall;
-                double dataset_hnsw_recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
-                double dataset_hnsw_mrr = calculate_mrr_for_msmacro(solution_indices, qrels[i]);
-                total_dataset_hnsw_recall += dataset_hnsw_recall;
-                total_dataset_hnsw_mrr += dataset_hnsw_mrr;
+                double wcf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth[i], qrels[i]);
+                // std::cout << i << std::endl;
+                total_wcf_bf_recall += wcf_bf_recall;
+                double cf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth_cf[i], qrels[i]);
+                // std::cout << i << std::endl;
+                total_cf_bf_recall += cf_bf_recall;
                 std::cout << "Recall for query set " << i << ": " << dataset_hnsw_recall << " " << dataset_hnsw_mrr << " | " << recall << " " << wcf_bf_recall << " | " << cf_recall << " " << cf_bf_recall << " " << query_time << std::endl;
-            } catch (const std::exception& e) {
-                std::cerr << "Exception in search_with_cluster: " << e.what() << std::endl;
-                exit(1);
+            } else {
+                std::cout << "Recall for query set " << i << ": " << dataset_hnsw_recall << " " << dataset_hnsw_mrr << " | " << query_time << std::endl;
             }
         }
         std::cout << "ef: " << tmpef << std::endl;
-        std::cout << "Average Weighted CF BF Recall v.s. dataset label: " << total_wcf_bf_recall/NUM_QUERY_SETS<< std::endl;
-        std::cout << "Average CF BF Recall v.s. dataset label: " << total_cf_bf_recall/NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method Recall v.s. Weighted CF Brute Force: " << total_recall/NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method Recall v.s. CF Brute Force: " << total_cf_recall/NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method recall v.s. dataset label: " << total_dataset_hnsw_recall / NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method mrr v.s. dataset label: " << total_dataset_hnsw_mrr/ NUM_QUERY_SETS << std::endl;
-        std::cout << "Average query time: " << total_query_time/NUM_QUERY_SETS << " seconds" << std::endl;
-        std::cout << "Average L2Sqr was called " << l2_sqr_call_count.load() / NUM_QUERY_SETS << " times." << std::endl;
+        std::cout << "Average Weighted CF BF Recall v.s. dataset label: " << total_wcf_bf_recall/NUM_QUERT_LOTTE<< std::endl;
+        std::cout << "Average CF BF Recall v.s. dataset label: " << total_cf_bf_recall/NUM_QUERT_LOTTE << std::endl;
+        std::cout << "Average our method Recall v.s. Weighted CF Brute Force: " << total_recall/NUM_QUERT_LOTTE << std::endl;
+        std::cout << "Average our method Recall v.s. CF Brute Force: " << total_cf_recall/NUM_QUERT_LOTTE << std::endl;
+        std::cout << "Average our method recall v.s. dataset label: " << total_dataset_hnsw_recall / NUM_QUERT_LOTTE << std::endl;
+        std::cout << "Average our method mrr v.s. dataset label: " << total_dataset_hnsw_mrr/ NUM_QUERT_LOTTE << std::endl;
+        std::cout << "Average our method hitrate v.s. dataset label: " << total_dataset_hitrate/ NUM_QUERT_LOTTE << std::endl;
+        std::cout << "Average query time: " << total_query_time/NUM_QUERT_LOTTE << " seconds" << std::endl;
+        std::cout << "Average L2Sqr was called " << l2_sqr_call_count.load() / NUM_QUERT_LOTTE << " times." << std::endl;
     }
     return 0;
 
