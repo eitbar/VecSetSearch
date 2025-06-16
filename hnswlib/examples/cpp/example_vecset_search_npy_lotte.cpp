@@ -25,13 +25,13 @@ constexpr int NUM_QUERT_LOTTE = 2930;
 constexpr int LOTTE_TEST_NUMBER = 98;
 int NUM_QUERY_SETS = 2930;
 constexpr int QUERY_VECTOR_COUNT = 32;
-constexpr int K = 100;
-constexpr int rerankK = 256;
-constexpr int minef = 300;
-constexpr int maxef = 2000;
-constexpr int efinterval = 100;
+constexpr int K = 10;
+constexpr int rerankK = 64;
+constexpr int minef = 2000;
+constexpr int maxef = 10000;
+constexpr int efinterval = 1000;
 constexpr int NUM_CLUSTER = 262144;
-constexpr int NUM_GRAPH_CLUSTER = 40960;
+constexpr int NUM_GRAPH_CLUSTER = 10240;
 
 void convert_to_column_major(const std::vector<float>& row_major_matrix, std::vector<float>& col_major_matrix, int rows, int cols) {
     // col_major_matrix.resize(rows * cols); // 重新分配空间
@@ -319,7 +319,7 @@ public:
         alg_hnsw_list[0] = new hnswlib::HierarchicalNSW<float>(space_ptr, base.size() + 1, 24, 80);
         for(int tmpi = 0; tmpi < temp_cluster_id.size(); tmpi++) {
             int i = temp_cluster_id[tmpi];
-            if (i != 65583 && i != 4705 && i != 1986 && i != 5870 && i != 56083 && i!= 33326 && i != 3) {
+            if (i != 65583 && i != 4705 && i != 1986 && i != 5870 && i != 56083 && i!= 33326 && i != 3 && i != 10123) {
                 double cur_time = omp_get_wtime();
                 std::cout << "cluster build begin: " + std::to_string(i) + " " + std::to_string(cluster_set[i].size()) << std::endl;
                 alg_hnsw_list[0]->entry_map.clear();
@@ -1263,8 +1263,8 @@ void load_from_lotte(std::vector<float>& base_data, std::vector<vectorset>& base
     std::string qembfile_name = "/home/zhoujin/data/lotte_embeddings/pooled/lotte_pooled_dev_query.npy";
     std::string qrelfile_name = "/home/zhoujin/data/lotte/pooled/dev/qas.search.tsv"; 
 
-    std::string cdocsfile_name = "/home/zhoujin/data/lotte_embeddings/pooled/cluster_data/lotte_40960_cluster_info_tfidf_dynamic_nprob4_multi_label.txt"; 
-    std::string gcembfile_name = "/home/zhoujin/data/lotte_embeddings/pooled/cluster_data/lotte_40960_cluster_centroids.npy"; 
+    std::string cdocsfile_name = "/home/zhoujin/data/lotte_embeddings/pooled/cluster_data/lotte_10240_cluster_info_tfidf_dynamic_nprob4_multi_label.txt"; 
+    std::string gcembfile_name = "/home/zhoujin/data/lotte_embeddings/pooled/cluster_data/lotte_10240_cluster_centroids.npy"; 
 
 
     for (int i = 0; i < file_numbers; i++) {
@@ -1882,7 +1882,7 @@ int main() {
     int dataset = 1;
     bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = true;
+    bool rebuild = false;
     bool test_graph = false;
     bool reconnect = false;
     int dist_metric = 1;
@@ -2099,7 +2099,7 @@ int main() {
     // return 0;
     // index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/256clusterSingleIndexTFIDF/";
     // index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/clusterFilterIndex/";
-    index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/lotteIndex40960_all/";
+    index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/lotteIndex10240_all/";
     // std::vector<int> temp_cluster_id(2761);
 
     // Solution solution;
@@ -2144,7 +2144,9 @@ int main() {
 
         for (int i = 0; i < NUM_QUERT_LOTTE; ++i) {
             std::vector<std::pair<int, float>> solution_indices;
+            // std::cout<< "Processing query " << i << std::endl; 
             double query_time = solution.search_with_fine_cluster(query[i], test_query_cluster_scores, col_query_cluster_scores, center_data, graph_center_data, K, tmpef, solution_indices);     
+            // std::cout << "Query time: " << query_time << " seconds" << std::endl;
             total_query_time += query_time;
             double dataset_hnsw_recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
             double dataset_hnsw_mrr = calculate_mrr_for_msmacro(solution_indices, qrels[i]);
