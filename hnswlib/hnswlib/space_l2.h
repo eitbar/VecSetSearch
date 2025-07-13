@@ -11,6 +11,8 @@
 #include "../otlib/EMD.h"
 #include <chrono>
 
+constexpr int NUM_CLUSTER_CALC = 262144;
+
 inline std::atomic<int> l2_sqr_call_count(0);
 inline std::atomic<int> l2_vec_call_count(0);
 
@@ -762,7 +764,7 @@ static float L2SqrVecCF(const vectorset* q, const vectorset* p, int level) {
     #endif
     size_t q_vecnum = q->vecnum;
     size_t p_vecnum = p->vecnum ;
-    #pragma omp simd reduction(+:sum1)
+    // #pragma omp simd reduction(+:sum1)
     for (size_t i = 0; i < q_vecnum; ++i) {
         const float* vec_q = q->data + i * (level + 1) * q->dim;
         float maxDist = 99999.9f;
@@ -780,10 +782,10 @@ static float L2SqrVecCF(const vectorset* q, const vectorset* p, int level) {
 
 float max_inner_product_sum(const float* A, const float* B, int n, int m, int d) {
     // **使用 Eigen::Map<> 映射 A 和 B，不复制数据**
-    Eigen::Map<const Eigen::MatrixXf> A_mat(A, n, d);
-    Eigen::Map<const Eigen::MatrixXf> B_mat(B, m, d);
-    // Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> A_mat(A, n, d);
-    // Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> B_mat(B, m, d);
+    // Eigen::Map<const Eigen::MatrixXf> A_mat(A, n, d);
+    // Eigen::Map<const Eigen::MatrixXf> B_mat(B, m, d);
+    Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> A_mat(A, n, d);
+    Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> B_mat(B, m, d);
     Eigen::MatrixXf C = A_mat * B_mat.transpose();
     return C.rowwise().maxCoeff().sum();
 }
@@ -792,6 +794,7 @@ static float L2SqrVecEigenCF(const vectorset* q, const vectorset* p, int level) 
     float sum1 = max_inner_product_sum(q->data, p->data, q->vecnum, p->vecnum, q->dim);
     return 1 - sum1 / q->vecnum;
 }
+
 
 void fast_dot_product_blas(int n, int d, int m, float* A, float* B, float* C) {
     cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
@@ -992,7 +995,7 @@ static float L2SqrVecClusterEMD(const vectorset* q, const vectorset* p, const fl
 
     // #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < n; ++i) {
-        long long icode = (long long)q->codes[i] * 262144;
+        long long icode = (long long)q->codes[i] * NUM_CLUSTER_CALC;
         // std::cout << i << " " << icode << " "  << std::flush;
         for (size_t j = 0; j < m; ++j) {
             dist_flat[i * m + j] = (double)1.0f - cluster_dis[icode + p->codes[j]];
@@ -1156,7 +1159,7 @@ static float L2SqrCluster4Search(const vectorset* q, const vectorset* p, int lev
     level = 0;
     size_t q_vecnum = q->vecnum;
     size_t p_vecnum = p->vecnum;
-    sum1 = compute_with_eigen(q->data, p->codes, q->vecnum, 262144, p->vecnum);
+    sum1 = compute_with_eigen(q->data, p->codes, q->vecnum, NUM_CLUSTER_CALC, p->vecnum);
     return sum1 / q->vecnum;
 }
 
@@ -1183,7 +1186,7 @@ static float L2SqrClusterAVX4Search(const vectorset* q, const vectorset* p, int 
             }
             __m512i indices = _mm512_load_si512(index_buffer);
             // 按索引读取数据
-            __m512 values = _mm512_i32gather_ps(indices, &(q->data[i * 262144]), sizeof(float));
+            __m512 values = _mm512_i32gather_ps(indices, &(q->data[i * NUM_CLUSTER_CALC]), sizeof(float));
             max_val = _mm512_max_ps(max_val, values);
         }
 

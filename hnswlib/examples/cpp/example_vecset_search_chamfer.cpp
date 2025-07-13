@@ -13,8 +13,7 @@
 #include "../../hnswlib/space_l2.h"
 #include "../../hnswlib/vectorset.h"
 #include "../../cnpy/cnpy.h"
- 
-constexpr int CPU_num = 1;
+
 constexpr int VECTOR_DIM = 128;
 constexpr int BASE_VECTOR_SET_MIN = 36;
 constexpr int BASE_VECTOR_SET_MAX = 48;
@@ -28,15 +27,14 @@ int NUM_QUERY_SETS = 2930;
 constexpr int QUERY_VECTOR_COUNT = 32;
 constexpr int K = 10;
 constexpr int rerankK = 64;
-constexpr int minef = 15000;
-constexpr int maxef = 50000;
-constexpr int efinterval = 5000;
+constexpr int minef = 2000;
+constexpr int maxef = 10000;
+constexpr int efinterval = 1000;
 constexpr int NUM_CLUSTER = 262144;
 constexpr int NUM_GRAPH_CLUSTER = 10240;
 
 void convert_to_column_major(const std::vector<float>& row_major_matrix, std::vector<float>& col_major_matrix, int rows, int cols) {
     // col_major_matrix.resize(rows * cols); // 重新分配空间
-
     #pragma omp parallel for
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
@@ -511,7 +509,6 @@ public:
 
     double search_with_fine_cluster(const vectorset& query, std::vector<float>& query_cluster_scores, std::vector<float>& col_query_cluster_scores, std::vector<float>& center_data, std::vector<float>& graph_center_data, int k, int ef, std::vector<std::pair<int, float>>& res) {
         res.clear();
-        res.resize(rerankK);
         // alg_hnsw_list[0]->entry_map.clear();
         alg_hnsw_list[0]->search_set.assign(alg_hnsw_list[0]->search_set.size(), 0);
         volatile int temp = 6;
@@ -570,26 +567,18 @@ public:
                       [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
                           return a.first < b.first;  // 按 float 排序，越小越靠前
                       });
-
-        res.resize(numrerank);              
-        if (CPU_num == 1) {
-            // using RowMajorMatrix = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-            Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> A_mat(query.data, query.vecnum, VECTOR_DIM);
-            for (int i = 0; i < numrerank; i++){
-                // for (const hnswlib::labeltype ind : search_result){
-                hnswlib::labeltype ind = merge_result[i].second;
-                Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> B_mat(base_vectors[ind].data, base_vectors[ind].vecnum, VECTOR_DIM);
-                Eigen::MatrixXf C = A_mat * B_mat.transpose();
-                res[i] = std::make_pair(ind, 1 - C.rowwise().maxCoeff().sum() / query.vecnum);
-            }            
-        } else {
-            for (int i = 0; i < numrerank; i++){
-                // for (const hnswlib::labeltype ind : search_result){
-                hnswlib::labeltype ind = merge_result[i].second;
-                res[i] = std::make_pair(ind, hnswlib::L2SqrVecCF(&query, &base_vectors[ind], 0));
-            }
+        // merge_result.resize(256);
+        // std::cout << merge_result.size() << std::endl;
+        for (int i = 0; i < numrerank; i++){
+            // for (const hnswlib::labeltype ind : search_result){
+            hnswlib::labeltype ind = merge_result[i].second;
+            res.push_back(std::make_pair(ind, hnswlib::L2SqrVecCF(&query, &base_vectors[ind], 0)));
         }
-
+        // std::cout << res.size() << std::endl;
+        // std::partial_sort(res.begin(), res.begin() + k, res.end(),
+        //               [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
+        //                   return a.second < b.second;  // 按 float 排序，越小越靠前
+        //               });
         std::sort(res.begin(), res.end(),
             [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
                 return a.second < b.second;
