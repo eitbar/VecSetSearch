@@ -1333,7 +1333,7 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidate_set;
 
-        dist_t lowerBound;
+        dist_t lowerBound = -1;
         for (labeltype ep: entry_points) {
             tableint ep_id = label_lookup_.find(ep)->second;
             char* ep_data = getDataByInternalId(ep_id);
@@ -4679,7 +4679,13 @@ template <bool bare_bone_search = true, bool collect_metrics = false>
             top_candidates = searchBaseLayerClusterEntriesMulti<false>(
                 entry_points, query_data, std::max(ef_, k), isIdAllowed);
         }
-
+        // if (bare_bone_search) {
+        //     top_candidates = searchBaseLayerClusterEntries<true>(
+        //         entry_points, query_data, std::max(ef_, k), isIdAllowed);
+        // } else {
+        //     top_candidates = searchBaseLayerClusterEntries<false>(
+        //         entry_points, query_data, std::max(ef_, k), isIdAllowed);
+        // }
         // while (top_candidates.size() > k) {
         //     top_candidates.pop();
         // }

@@ -961,7 +961,7 @@ static float L2SqrVecEMD(const vectorset* q, const vectorset* p, int level) {
     L2Sqrfunc_ = InnerProductDistance;
     #endif
     size_t n = q->vecnum;
-    size_t m = p->vecnum ;
+    size_t m = p->vecnum;
     std::vector<double> dist_flat(n * m);
     // std::vector<std::vector<double>> dist_matrix(n, std::vector<double>(m));
     for (size_t i = 0; i < n; ++i) {
@@ -979,6 +979,44 @@ static float L2SqrVecEMD(const vectorset* q, const vectorset* p, int level) {
     float emd = EMD_wrap_self(n, m, a_hist.data(), b_hist.data(), dist_flat.data(), 1000);
     // std::cout<< emd << std::endl;
     return (float)emd;
+}
+
+
+static float L2SqrVecChamfer(const vectorset* q, const vectorset* p, int level) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    level = 0;
+    // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
+    float (*L2Sqrfunc_)(const void*, const void*, const void*);
+    #if defined(USE_AVX512)
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX512;
+    #elif defined(USE_AVX)
+    L2Sqrfunc_ = InnerProductDistanceSIMD16ExtAVX;
+    #else 
+    L2Sqrfunc_ = InnerProductDistance;
+    #endif
+    size_t n = q->vecnum;
+    size_t m = p->vecnum;
+    std::vector<float> dist_flat(n * m);
+    // std::vector<std::vector<double>> dist_matrix(n, std::vector<double>(m));
+    for (size_t i = 0; i < n; ++i) {
+        const float* vec_q = q->data + i * q->dim;
+        for (size_t j = 0; j < m; ++j) {
+            const float* vec_p = p->data + j * p->dim;
+            float dist = L2Sqrfunc_(vec_q, vec_p, &p->dim);
+            dist_flat[i * m + j] = dist;
+        }
+    }
+
+    for (size_t i = 0; i < n; ++i) {
+        float mindist = 2.0f;
+        for (size_t j = 0; j < m; ++j) {
+            mindist = std::min(dist_flat[i * m + j], mindist);
+        }
+        sum1 += mindist;
+    }
+
+    return sum1 / n;
 }
 
 
@@ -1011,6 +1049,38 @@ static float L2SqrVecClusterEMD(const vectorset* q, const vectorset* p, const fl
     return emd;
 }
 
+static float L2SqrVecClusterChamfer(const vectorset* q, const vectorset* p, const float* cluster_dis) {
+    float sum1 = 0.0f;
+    float sum2 = 0.0f;
+    // level = 0;
+    // l2_vec_call_count.fetch_add(1, std::memory_order_relaxed); 
+
+    size_t n = q->vecnum;
+    size_t m = p->vecnum ;
+
+    // #pragma omp parallel for schedule(dynamic)
+    for (size_t i = 0; i < n; ++i) {
+        long long icode = (long long)q->codes[i] * NUM_CLUSTER_CALC;
+        // std::cout << i << " " << icode << " "  << std::flush;
+        float mindist = 2.0f;
+        for (size_t j = 0; j < m; ++j) {
+            mindist = std::min(mindist, 1.0f - cluster_dis[icode + p->codes[j]]);
+        }
+        sum1 += mindist;
+    }
+
+    // for (size_t i = 0; i < m; ++i) {
+    //     long long icode = (long long)p->codes[i] * NUM_CLUSTER_CALC;
+    //     // std::cout << i << " " << icode << " "  << std::flush;
+    //     float mindist = 2.0f;
+    //     for (size_t j = 0; j < n; ++j) {
+    //         mindist = std::min(mindist, 1.0f - cluster_dis[icode + q->codes[j]]);
+    //     }
+    //     sum2 += mindist;
+    // }
+    // return sum1 / n + sum2 / m;
+    return sum1 / n;
+}
 
 float compute_emd(const std::vector<float>& a, const std::vector<float>& b, 
                   const std::vector<float>& C, int n, int m) {

@@ -1,8 +1,6 @@
 # VecSetSearch
 Vector Set Search Algorithm
 
-
-
 ## Dataset
 
 **Marco_embedding**: 
@@ -16,15 +14,30 @@ The dataset contains a total of 8.8 million passages. Their embeddings are store
 
 For example, in `doclens1.npy`, there are 25,000 integers, such as `[63, 52, 63, ...]`. This means `encoding1_float16.npy` contains embeddings for 25,000 passages. The first 63 rows (63 * 128) correspond to passage 1, the next 52 rows correspond to passage 2, and so on.
 
-The traing query dataset `queries_embeddings.npy`'s format is 101093 * 32 * 128, which means there are 10k queries in total, and each query consists of 32 128-d vectors. `reshaped_queries_embeddings.npy`'s format is 101093 * (32 * 128).
 
 
+**Lotte_embedding**: 
 
-`similarities_labels_xxx.npy` files are ground truth for our method. We compute the distance (sum of MaxSim) between each query and passage pair. For example, `similarities_labels_10000.npy` stores the similaries beween all queries and first 10000 passages. Here we provide the results for the first 1M passages for testing.
+Download datasets from [here](https://github.com/stanford-futuredata/ColBERT/blob/main/LoTTE.md).
+Pls see https://github.com/stanford-futuredata/ColBERT/blob/main/LoTTE.md for more details about datasets - LoTTE.
+We follow the similar procedure to produce embeddings for LoTTE dataset.
 
+**OKVQA_embedding**: 
+
+Download datasets from [here](https://github.com/LinWeizheDragon/FLMR/blob/main/docs/Datasets.md).
+Pls see https://github.com/LinWeizheDragon/FLMR/blob/main/docs/Datasets.md for details about datasets - OKVQA.
+We use [PreFLMR_ViT-L](https://huggingface.co/LinWeizheDragon/PreFLMR_ViT-L) to generate embeddings for Queries and Documents.
+
+
+**EVQA_embedding**: 
+
+Download datasets from [here](https://github.com/LinWeizheDragon/FLMR/blob/main/docs/Datasets.md).
+Pls see https://github.com/LinWeizheDragon/FLMR/blob/main/docs/Datasets.md for details about datasets - EVQA.
+We use [PreFLMR_ViT-L](https://huggingface.co/LinWeizheDragon/PreFLMR_ViT-L) to generate embeddings for Queries and Documents.
 
 ## Experiments
-### HNSW Demo
+
+### How to run
 
 ```
 cd hnswlib/
@@ -32,5 +45,20 @@ mkdir build
 cd build
 cmake ..
 make
-./example_vecset_search
+./example_vecset_search_okvqa
+```
+
+test on single cpu:
+
+```
+taskset -c 0 ./example_vecset_search_okvqa
+```
+
+please change the value of `int dataset` variable to test different datasets.
+
+```
+0 - msmarco
+1 - lotte
+2 - okvqa
+3 - evqa
 ```

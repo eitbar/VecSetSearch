@@ -49,7 +49,7 @@ constexpr int NUM_CLUSTER_EVQA = 32768;
 constexpr int NUM_GRAPH_CLUSTER_EVQA = 1024;
  
 constexpr int CPU_num = 1;
-constexpr int M_index = 8;
+constexpr int M_index = 24;
 constexpr int EF_index = 80;
 
 constexpr int NUM_BASE_SETS = 25000 * MSMACRO_TEST_NUMBER;
@@ -61,20 +61,22 @@ constexpr int NUM_GRAPH_CLUSTER = 40960;
 constexpr int QUERY_VECTOR_COUNT = 32;
 constexpr int NPROB = 4;
 constexpr int K = 100;
-constexpr int rerankK = 512;
+int rerankK = 512;
 constexpr int minef = 100;
 constexpr int maxef = 5000;
 constexpr int efinterval = 500;
 // 5
 // std::vector<int>eflist = {10, 32, 64, 100, 200, 400, 800, 1000, 2000, 4000, 6000, 10000, 15000, 20000, 40000};
+// std::vector<int>eflist = {2000};
 // std::vector<int>eflist = {2000, 4000, 8000, 10000, 15000, 20000, 30000};
 // 10
-// std::vector<int>eflist = {10, 32, 64, 100, 200, 400, 800, 2000, 4000, 6000, 10000, 20000, 40000};
+// std::vector<int>eflist = {1000};
 // std::vector<int>eflist = {10, 32, 64, 100, 200, 400, 800, 2000, 4000, 8000, 10000, 15000, 20000, 30000};
-// std::vector<int>eflist = {2000, 4000, 8000, 10000, 15000, 20000, 30000};
+// std::vector<int>eflist = {100, 256, 512, 1000, 2000, 4000, 80000, 16000, 24000, 32000};
+std::vector<int>eflist = {4000};
 // 100
-std::vector<int>eflist = {100, 200, 400, 800, 1000, 2000, 4000, 8000, 16000, 24000, 40000, 50000};
-
+// std::vector<int>eflist = {10, 32, 100, 200, 400, 800, 1000, 2000, 4000, 8000, 16000, 24000, 40000, 50000};
+// std::vector<int>eflist = {80000, 120000, 150000, 200000};
 //std::vector<int>eflist = {4000};
 void convert_to_column_major(const std::vector<float>& row_major_matrix, std::vector<float>& col_major_matrix, int rows, int cols) {
     // col_major_matrix.resize(rows * cols); // 重新分配空间
@@ -583,11 +585,14 @@ public:
             [](const std::pair<int, float>& a, const std::pair<int, float>& b) {
                 return a.second < b.second;
             });
-        res.resize(k);
+        if (res.size() > k) {
+            res.resize(k);
+        }
+        // res.resize(k);
         // std::cout << res.size() << std::endl;
         double end_time = omp_get_wtime();
         // std::cout << start_time_2 - start_time << " " << start_time_3 - start_time_2 << " " << start_time_4 - start_time_3 << std::endl;
-        std::cout << "cluster calc: " << start_time_2 - start_time << " cluster find: " << start_time_3 - start_time_2 << " cluster merge: " << cluster_time - start_time_4 << " transfer col storage: " << start_time_4 - start_time_3  << " search time: " << search_time - cluster_time << " search calc count: " << l2_vec_call_count.load() << " rerank time: " << end_time - search_time << std::endl;
+        // std::cout << "cluster calc: " << start_time_2 - start_time << " cluster find: " << start_time_3 - start_time_2 << " cluster merge: " << cluster_time - start_time_4 << " transfer col storage: " << start_time_4 - start_time_3  << " search time: " << search_time - cluster_time << " search calc count: " << l2_vec_call_count.load() << " rerank time: " << end_time - search_time << std::endl;
         return end_time - start_time;
     }
 
@@ -1130,13 +1135,7 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
 
         // 读取两个整数，用 \t 作为分隔符
         if (iss >> num1 >> num2) {
-            if (num1 < 0 || num1 >= q_num) {
-                continue;
-                // std::cerr << "?" << line << std::endl;
-            } else {
-                // std::cout << num1 << " " << num2 << std::endl;
-                qrels[num1].push_back(num2);
-            }
+            qrels[num1].push_back(num2);
         }
     }
     file.close();
@@ -1163,6 +1162,26 @@ void load_from_msmarco(std::vector<float>& base_data, std::vector<vectorset>& ba
     std::cout << "load data finish! passage count: " << base.size() << " query count: " << query.size() << " " << qrels.size() << std::endl;
 }
 
+void load_train_q_d_from_msmarco(std::vector<std::pair<int, int>>& all_shortcut) {
+    //all_shortcut.resize(NUM_SHORTCUT);
+    std::string shotcut_name = "/home/zhoujin/vecDB_publi_data/0.6b_128d_dataset/msmarco_shortcut_all.tsv"; 
+    std::ifstream file(shotcut_name);
+    std::string line;
+    int i = 0;
+    while (std::getline(file, line)) { // 逐行读取
+        std::istringstream iss(line);  // 创建字符串流
+        int num1, num2;
+        char delimiter;                // 用于捕获 \t 分隔符
+
+        // 读取两个整数，用 \t 作为分隔符
+        if (iss >> num1 >> num2) {
+            all_shortcut[i] = std::make_pair(num1, num2);
+            i++;
+        }
+    }
+    file.close();
+    std::cout << all_shortcut.size() << " " << i << std::endl;
+}
 
 void load_from_okvqa(std::vector<float>& base_data, std::vector<vectorset>& base,
                        std::vector<float>& query_data, std::vector<vectorset>& query,
@@ -1179,7 +1198,8 @@ void load_from_okvqa(std::vector<float>& base_data, std::vector<vectorset>& base
     std::string qlensfile_name = "/home/zhoujin/data/okvqa/okvqa_embeddings/processed_qdata/filterd_query_len.npy";
     std::string qrelfile_name = "/home/zhoujin/data/okvqa/okvqa_embeddings/processed_qdata/qrels.tsv"; 
 
-    std::string cdocsfile_name = "/home/zhoujin/data/okvqa/okvqa_embeddings/okvqa_recluster/okvqa_1024_cluster_info_tfidf_dynamic_nprob4_multi_label.txt"; 
+    std::string cdocsfile_name = "/home/zhoujin/data/okvqa/okvqa_embeddings/okvqa_recluster/okvqa_1024_cluster_info_tfidf_top3_nprob4_multi_label.txt";
+    // std::string cdocsfile_name = "/home/zhoujin/data/okvqa/okvqa_embeddings/okvqa_recluster/okvqa_1024_cluster_info_tfidf_dynamic_nprob4_multi_label.txt"; 
     std::string gcembfile_name = "/home/zhoujin/data/okvqa/okvqa_embeddings/okvqa_recluster/okvqa_1024_cluster_centroids.npy"; 
 
 
@@ -1722,7 +1742,7 @@ void load_noise_query(std::vector<float>& query_data, std::vector<vectorset>& qu
 }
 
 
-void load_train_query(std::vector<float>& query_data, std::vector<vectorset>& query, 
+void load_msmarco_train_query(std::vector<float>& query_data, std::vector<vectorset>& query, 
                       std::vector<std::vector<int>>& qrels) {
     long long offset = 0;  
     long long all_elements = 0;   
@@ -1740,11 +1760,13 @@ void load_train_query(std::vector<float>& query_data, std::vector<vectorset>& qu
     for (size_t i = 0; i < num_qembs_elements; ++i) {
         query_data[i] = (static_cast<float>((raw_qembs_data[i])));
     }
+    std::cout << num_qembs_elements << std::endl;
     
     for (int i = 0; i < q_num; ++i) {
         query.push_back(vectorset(query_data.data() + q_offset, VECTOR_DIM, QUERY_VECTOR_COUNT));
         q_offset += QUERY_VECTOR_COUNT * VECTOR_DIM;
     }
+    std::cout << query.size() << std::endl;
     qrels.resize(q_num + 1);
 
     std::ifstream file(qrelfile_name);
@@ -1756,17 +1778,29 @@ void load_train_query(std::vector<float>& query_data, std::vector<vectorset>& qu
 
         // 读取两个整数，用 \t 作为分隔符
         if (iss >> num1 >> num2) {
-            if (num1 < 0 || num1 >= q_num) {
-                continue;
-                // std::cerr << "?" << line << std::endl;
-            } else {
-                // std::cout << num1 << " " << num2 << std::endl;
-                qrels[num1].push_back(num2);
-            }
+            qrels[num1].push_back(num2);
         }
     }
     file.close();
     std::cout << "load train query finish! query count: " << query.size() << " " << qrels.size() << std::endl;
+}
+
+void load_msmarco_train_addedge(std::vector<std::pair<int, int>>& edge_pair) {
+    std::string edgefile_name = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/msmarco_add_edge_100k_top5.txt";    
+    std::ifstream file(edgefile_name);
+    std::string line;
+    while (std::getline(file, line)) { // 逐行读取
+        std::istringstream iss(line);  // 创建字符串流
+        int num1, num2;
+        char delimiter;                // 用于捕获 \t 分隔符
+
+        // 读取两个整数，用 \t 作为分隔符
+        if (iss >> num1 >> num2) {
+            edge_pair.push_back(std::make_pair(num1, num2));
+        }
+    }
+    file.close();
+    std::cout << "load train edge finish! edge count: " << edge_pair.size() << std::endl;
 }
 
 void subset_test_msmarco(std::vector<float>& base_data, std::vector<vectorset>& base,
@@ -2009,6 +2043,31 @@ double calculate_mrr_for_msmacro(const std::vector<std::pair<int, float>>& solut
     return 0.0;
 }
 
+void save_result_append(const std::vector<std::pair<int, float>>& solution_indices, const std::string& file_name) {
+    std::ofstream fout(file_name, std::ios::app);  // 以追加模式打开文件
+    for (size_t i = 0; i < solution_indices.size(); ++i) {
+        fout << solution_indices[i].first;
+        if (i != solution_indices.size() - 1) {
+            fout << " ";
+        }
+    }
+    fout << '\n'; 
+    fout.close();
+}
+
+void save_result_all(const std::vector<std::vector<std::pair<int, float>>>& all_solution_indices, const std::string& file_name) {
+    std::ofstream fout(file_name, std::ios::app);  // 以追加模式打开文件
+    for (size_t i = 0; i < all_solution_indices.size(); ++i) {
+        for (size_t j = 0; j < all_solution_indices[i].size() ; ++j) {
+            fout << all_solution_indices[i][j].first;
+            if (j != all_solution_indices[i].size() - 1) {
+                fout << " ";
+            }
+        }
+        fout << '\n';
+    }
+    fout.close();
+}
 
 double calculate_recall_for_msmacro_k(const std::vector<std::pair<int, float>>& solution_indices,
                         const std::vector<int>& ground_truth_indices, int topk) {
@@ -2130,8 +2189,11 @@ int main() {
     std::vector<float> base_data;
     std::vector<int> base_vec_num;
     std::vector<float> query_data;
+    std::vector<float> train_query_data;
     std::vector<vectorset> base;
     std::vector<vectorset> query;
+    std::vector<vectorset> train_query;
+    std::vector<std::vector<std::pair<int, float>>> train_query_top5;
     std::vector<vectorset> query_center;
     std::vector<vectorset> query_center_col;
     std::vector<int> base_data_codes;
@@ -2142,24 +2204,29 @@ int main() {
     std::vector<float> test_query_cluster_scores;
     std::vector<std::vector<hnswlib::labeltype>> cluster_set;
     std::vector<std::vector<int>> qrels;
+    std::vector<std::vector<int>> train_qrels;
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth(
         6980, std::vector<std::pair<int, float>>(4000, {0, 0.0f})
     );
     std::vector<std::vector<std::pair<int, float>>> bf_ground_truth_cf(
         6980, std::vector<std::pair<int, float>>(4000, {0, 0.0f})
     );
+    train_query_data.resize((long long) 808731 * 128 * 32);
+    train_query_top5.resize(808731);
+    load_msmarco_train_query(train_query_data, train_query, train_qrels);
     int dataset = 0;
     bool test_subset = false;
     bool load_bf_from_cache = true;
-    bool rebuild = true;
+    bool rebuild = false;
     bool test_graph = false;
     bool reconnect = false;
+    bool save_result = false;
     int dist_metric = 1;
     int multi_entries_num = 40;
     int multi_entries_range = 100;
     std::mt19937 gen(42);                    // 使用Mersenne Twister引擎
     std::uniform_int_distribution<int> dist(1, std::numeric_limits<int>::max());
-    std::string ground_truth_file, index_file;
+    std::string ground_truth_file, index_file, save_result_file;
 
     // std::vector<int> temp_cluster_id(185);
     // std::ifstream codcsfile("/home/zhoujin/project/forremove/VecSetSearch/256_cluster_id_nprob_1_query_100.txt");
@@ -2289,6 +2356,7 @@ int main() {
     if (dataset == 0) {
         ground_truth_file = "../examples/caches/ground_truth_cluster_ip_top4k.txt";
         index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/msmarcoIndex" + std::to_string(NUM_GRAPH_CLUSTER_MS) + "_all_" + std::to_string(M_index) + "_" + std::to_string(EF_index) + "/";
+        save_result_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/msmarco_results_" + std::to_string(NUM_GRAPH_CLUSTER_MS) + "_all_" + std::to_string(M_index) + "_" + std::to_string(EF_index) + "_" + std::to_string(K) + ".txt";
         std::cout << index_file << std::endl;
         // test on all msmacro dataset
         base_data.resize((long long) 25000 * MSMACRO_TEST_NUMBER * 128 * 80);
@@ -2310,7 +2378,7 @@ int main() {
         cluster_set.resize(NUM_GRAPH_CLUSTER);
         load_from_lotte(base_data, base, query_data, query, base_data_codes, center_data, graph_center_data, cluster_set, LOTTE_TEST_NUMBER, qrels);
         index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/lotteIndex" + std::to_string(NUM_GRAPH_CLUSTER_LOTTE) + "_all_" + std::to_string(M_index) + "_" + std::to_string(EF_index) + "/";
-    
+        save_result_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/lotte_results_" + std::to_string(NUM_GRAPH_CLUSTER_LOTTE) + "_all_" + std::to_string(M_index) + "_" + std::to_string(EF_index) + "_" + std::to_string(K) + ".txt";
     } else if (dataset == 2) {
         // OKVQA
         base_data.resize((long long) NUM_BASE_VECTOR_OKVQA * 128);
@@ -2321,6 +2389,7 @@ int main() {
         cluster_set.resize(NUM_GRAPH_CLUSTER);
         load_from_okvqa(base_data, base, query_data, query, base_data_codes, center_data, graph_center_data, cluster_set, OKVQA_TEST_NUMBER, qrels);
         index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/okvqaIndex" + std::to_string(NUM_GRAPH_CLUSTER_OKVQA) + "_all_" + std::to_string(M_index) + "_" + std::to_string(EF_index) + "/";
+        save_result_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/okvqa_results_" + std::to_string(NUM_GRAPH_CLUSTER_OKVQA) + "_all_" + std::to_string(M_index) + "_" + std::to_string(EF_index) + "_" + std::to_string(K) + ".txt";
     } else if (dataset == 3) {
         // OKVQA
         base_data.resize((long long) NUM_BASE_VECTOR_EVQA * 128);
@@ -2331,8 +2400,9 @@ int main() {
         cluster_set.resize(NUM_GRAPH_CLUSTER);
         load_from_evqa(base_data, base, query_data, query, base_data_codes, center_data, graph_center_data, cluster_set, EVQA_TEST_NUMBER, qrels);
         index_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/evqaIndex" + std::to_string(NUM_GRAPH_CLUSTER_EVQA) + "_all_" + std::to_string(M_index) + "_" + std::to_string(EF_index) + "/";
+        save_result_file = "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/evqa_results_" + std::to_string(NUM_GRAPH_CLUSTER_EVQA) + "_all_" + std::to_string(M_index) + "_" + std::to_string(EF_index) + "_" + std::to_string(K) + ".txt";
     }
-
+    std::remove(save_result_file.c_str());
     std::vector<float> col_query_cluster_scores(NUM_CLUSTER * QUERY_VECTOR_COUNT);
     test_query_cluster_scores.resize(NUM_CLUSTER * QUERY_VECTOR_COUNT);
     col_query_cluster_scores.resize(NUM_CLUSTER * QUERY_VECTOR_COUNT);
@@ -2362,74 +2432,106 @@ int main() {
         solution.load_fine_cluster(index_file, VECTOR_DIM, base, cluster_set, temp_cluster_id);
         // solution.repair_fine_graph_structure(cluster_set, temp_cluster_id);
         solution.repair_fine_graph_structure(cluster_set);
+        std::vector<std::pair<int, int>> edge_pair;
+        // load_msmarco_train_addedge(edge_pair);
+        // int connect_count = 0;
+        // for (size_t i = 0; i < edge_pair.size(); ++i) {
+        //     if (solution.alg_hnsw_list[0]->canAddEdgeinter(edge_pair[i].first)) {
+        //         solution.alg_hnsw_list[0]->mutuallyConnectTwoInterElement(edge_pair[i].first, edge_pair[i].second);
+        //         if (solution.alg_hnsw_list[0]->canAddEdgeinter(edge_pair[i].second)) {
+        //             solution.alg_hnsw_list[0]->mutuallyConnectTwoInterElement(edge_pair[i].second, edge_pair[i].first);
+        //         }
+        //         connect_count += 1;
+        //     }
+        // }
+        // std::cout << connect_count << std::endl;
         solution.alg_hnsw_list[0]->checkIntegrity();
     }
 
-    for (int tmpef: eflist) {
-        double total_recall = 0.0;
-        double total_cf_recall = 0.0;
-        double total_dataset_hnsw_recall = 0.0;
-        double total_wcf_bf_recall = 0.0;
-        double total_cf_bf_recall = 0.0;
-        double total_query_time = 0.0;
-        double total_enrty_recall_10 = 0.0;
-        double total_enrty_recall_30 = 0.0;
-        double total_enrty_recall_50 = 0.0;
-        double total_enrty_recall_100 = 0.0;
-        double total_dataset_hnsw_mrr = 0.0;
-        double total_dataset_hitrate = 0.0;
+    // #pragma omp parallel for schedule(dynamic)
+    // std::cout << train_query_top5.size() << std::endl;
+    // for (int i = 100000; i < 800000; ++i) {
+    //     if (i % 1000 == 0) {
+    //         std::cout << i << std::endl;
+    //     }
+    //     std::vector<std::pair<int, float>> solution_indices;
+    //     double query_time = solution.search_with_fine_cluster(train_query[i], test_query_cluster_scores, col_query_cluster_scores, center_data, graph_center_data, 5, 100, solution_indices);     
+    //     for (int j = 0; j < 5; j ++) {
+    //         train_query_top5[i].push_back(std::make_pair(solution_indices[j].first, solution_indices[j].second));
+    //     }
+    // }
+    // save_result_all(train_query_top5, "/home/zhoujin/project/forremove/VecSetSearch/hnswlib/examples/msmarco_train_700k_top5.txt");
+    // return 0;
+    std::vector<int> reranklist = {128, 256, 378, 512};
+    for (int r: reranklist) {
+        rerankK = r;
+        for (int tmpef: eflist) {
+            double total_recall = 0.0;
+            double total_cf_recall = 0.0;
+            double total_dataset_hnsw_recall = 0.0;
+            double total_wcf_bf_recall = 0.0;
+            double total_cf_bf_recall = 0.0;
+            double total_query_time = 0.0;
+            double total_enrty_recall_10 = 0.0;
+            double total_enrty_recall_30 = 0.0;
+            double total_enrty_recall_50 = 0.0;
+            double total_enrty_recall_100 = 0.0;
+            double total_dataset_hnsw_mrr = 0.0;
+            double total_dataset_hitrate = 0.0;
 
-        double total_recall_5 = 0.0;
-        double total_mrr_5 = 0.0;
-        double total_hitrate_5 = 0.0;
+            double total_recall_5 = 0.0;
+            double total_mrr_5 = 0.0;
+            double total_hitrate_5 = 0.0;
 
-        l2_sqr_call_count.store(0);
-        std::cout<<"Processing Queries HNSW"<<std::endl;
-
-        for (int i = 0; i < NUM_QUERY_SETS; ++i) {
-            std::vector<std::pair<int, float>> solution_indices;
-            // std::cout<< "Processing query " << i << std::endl; 
-            double query_time = solution.search_with_fine_cluster(query[i], test_query_cluster_scores, col_query_cluster_scores, center_data, graph_center_data, K, tmpef, solution_indices);     
-            // std::cout << "Query time: " << query_time << " seconds" << std::endl;
-            total_query_time += query_time;
-            double dataset_hnsw_recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
-            double dataset_hnsw_mrr = calculate_mrr_for_msmacro(solution_indices, qrels[i]);
-            double dataset_hitrate = calculate_hitrate_for_msmacro(solution_indices, qrels[i]);
-            total_recall_5 += calculate_recall_for_msmacro_k(solution_indices, qrels[i], 5);
-            total_mrr_5 += calculate_mrr_for_msmacro_k(solution_indices, qrels[i], 5);
-            total_hitrate_5 += calculate_hitrate_for_msmacro_k(solution_indices, qrels[i], 5);
-            total_dataset_hnsw_recall += dataset_hnsw_recall;
-            total_dataset_hnsw_mrr += dataset_hnsw_mrr;
-            total_dataset_hitrate += dataset_hitrate;
-            if (test_ground_truth) {
-                double recall = calculate_recall(solution_indices, bf_ground_truth[i]);
-                total_recall += recall;
-                double cf_recall = calculate_recall(solution_indices, bf_ground_truth_cf[i]);
-                total_cf_recall += cf_recall;
-                double wcf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth[i], qrels[i]);
-                // std::cout << i << std::endl;
-                total_wcf_bf_recall += wcf_bf_recall;
-                double cf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth_cf[i], qrels[i]);
-                // std::cout << i << std::endl;
-                total_cf_bf_recall += cf_bf_recall;
-                std::cout << "Recall for query set " << i << ": " << dataset_hnsw_recall << " " << dataset_hnsw_mrr << " | " << recall << " " << wcf_bf_recall << " | " << cf_recall << " " << cf_bf_recall << " " << query_time << std::endl;
-            } else {
-                std::cout << "Recall for query set " << i << ": " << dataset_hnsw_recall << " " << dataset_hnsw_mrr << " | " << query_time << std::endl;
+            l2_sqr_call_count.store(0);
+            std::cout<<"Processing Queries HNSW"<<std::endl;
+        
+            for (int i = 0; i < NUM_QUERY_SETS; ++i) {
+                std::vector<std::pair<int, float>> solution_indices;
+                // std::cout<< "Processing query " << i << std::endl; 
+                double query_time = solution.search_with_fine_cluster(query[i], test_query_cluster_scores, col_query_cluster_scores, center_data, graph_center_data, K, tmpef, solution_indices);     
+                // save_result_append(solution_indices, save_result_file);
+                // std::cout << "Query time: " << query_time << " seconds" << std::endl;
+                total_query_time += query_time;
+                double dataset_hnsw_recall = calculate_recall_for_msmacro(solution_indices, qrels[i]);
+                double dataset_hnsw_mrr = calculate_mrr_for_msmacro(solution_indices, qrels[i]);
+                double dataset_hitrate = calculate_hitrate_for_msmacro(solution_indices, qrels[i]);
+                total_recall_5 += calculate_recall_for_msmacro_k(solution_indices, qrels[i], 5);
+                total_mrr_5 += calculate_mrr_for_msmacro_k(solution_indices, qrels[i], 5);
+                total_hitrate_5 += calculate_hitrate_for_msmacro_k(solution_indices, qrels[i], 5);
+                total_dataset_hnsw_recall += dataset_hnsw_recall;
+                total_dataset_hnsw_mrr += dataset_hnsw_mrr;
+                total_dataset_hitrate += dataset_hitrate;
+                if (test_ground_truth) {
+                    double recall = calculate_recall(solution_indices, bf_ground_truth[i]);
+                    total_recall += recall;
+                    double cf_recall = calculate_recall(solution_indices, bf_ground_truth_cf[i]);
+                    total_cf_recall += cf_recall;
+                    double wcf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth[i], qrels[i]);
+                    // std::cout << i << std::endl;
+                    total_wcf_bf_recall += wcf_bf_recall;
+                    double cf_bf_recall = calculate_recall_for_msmacro(bf_ground_truth_cf[i], qrels[i]);
+                    // std::cout << i << std::endl;
+                    total_cf_bf_recall += cf_bf_recall;
+                    std::cout << "Recall for query set " << i << ": " << dataset_hnsw_recall << " " << dataset_hnsw_mrr << " | " << recall << " " << wcf_bf_recall << " | " << cf_recall << " " << cf_bf_recall << " " << query_time << std::endl;
+                } else {
+                    std::cout << "Recall for query set " << i << ": " << dataset_hnsw_recall << " " << dataset_hnsw_mrr << " | " << query_time << std::endl;
+                }
             }
+            std::cout << "rerankK: " << rerankK << " ef: " << tmpef << std::endl;
+            std::cout << "Average Weighted CF BF Recall v.s. dataset label: " << total_wcf_bf_recall/NUM_QUERY_SETS<< std::endl;
+            std::cout << "Average CF BF Recall v.s. dataset label: " << total_cf_bf_recall/NUM_QUERY_SETS << std::endl;
+            std::cout << "Average our method Recall v.s. Weighted CF Brute Force: " << total_recall/NUM_QUERY_SETS << std::endl;
+            std::cout << "Average our method Recall v.s. CF Brute Force: " << total_cf_recall/NUM_QUERY_SETS << std::endl;
+            std::cout << "Average our method recall v.s. dataset label: " << total_dataset_hnsw_recall / NUM_QUERY_SETS << std::endl;
+            std::cout << "Average our method mrr v.s. dataset label: " << total_dataset_hnsw_mrr/ NUM_QUERY_SETS << std::endl;
+            std::cout << "Average our method hitrate v.s. dataset label: " << total_dataset_hitrate/ NUM_QUERY_SETS << std::endl;
+            std::cout << "Average our method r5 v.s. dataset label: " << total_recall_5 / NUM_QUERY_SETS << std::endl;
+            std::cout << "Average our method m5 v.s. dataset label: " << total_mrr_5/ NUM_QUERY_SETS << std::endl;
+            std::cout << "Average our method h5 v.s. dataset label: " << total_hitrate_5/ NUM_QUERY_SETS << std::endl;
+            std::cout << "Average query time: " << total_query_time/NUM_QUERY_SETS << " seconds" << std::endl;
+            std::cout << "Average L2Sqr was called " << l2_sqr_call_count.load() / NUM_QUERY_SETS << " times." << std::endl;
         }
-        std::cout << "ef: " << tmpef << std::endl;
-        std::cout << "Average Weighted CF BF Recall v.s. dataset label: " << total_wcf_bf_recall/NUM_QUERY_SETS<< std::endl;
-        std::cout << "Average CF BF Recall v.s. dataset label: " << total_cf_bf_recall/NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method Recall v.s. Weighted CF Brute Force: " << total_recall/NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method Recall v.s. CF Brute Force: " << total_cf_recall/NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method recall v.s. dataset label: " << total_dataset_hnsw_recall / NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method mrr v.s. dataset label: " << total_dataset_hnsw_mrr/ NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method hitrate v.s. dataset label: " << total_dataset_hitrate/ NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method r5 v.s. dataset label: " << total_recall_5 / NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method m5 v.s. dataset label: " << total_mrr_5/ NUM_QUERY_SETS << std::endl;
-        std::cout << "Average our method h5 v.s. dataset label: " << total_hitrate_5/ NUM_QUERY_SETS << std::endl;
-        std::cout << "Average query time: " << total_query_time/NUM_QUERY_SETS << " seconds" << std::endl;
-        std::cout << "Average L2Sqr was called " << l2_sqr_call_count.load() / NUM_QUERY_SETS << " times." << std::endl;
     }
     return 0;
 
